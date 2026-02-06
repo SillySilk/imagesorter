@@ -23,3 +23,10 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# PyInstaller build artifacts
+build/
+*.spec
+
+# Distribution (keep .exe out of git - too large)
+dist/

@@ -1,0 +1,16 @@
+# Python requirements for Rapid Image Culler
+# For executable build only - end users don't need Python installed
+
+# Core dependencies
+pillow>=10.0.0
+
+# Build tool
+pyinstaller>=6.0.0
+
+# Built-in modules (no installation needed):
+# - tkinter (included with Python)
+# - json
+# - os
+# - shutil
+# - sys
+# - copy
