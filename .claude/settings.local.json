@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"./.claude/scripts/generate-commands-launcher.sh\" settings-ui)",
+      "Bash(python test_config.py:*)",
+      "Skill(commit-commands:commit)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

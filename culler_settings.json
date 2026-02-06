@@ -1,0 +1,15 @@
+{
+  "src": "C:/Output_All/txt2img/2026-02-05",
+  "keep": "C:/keepme_mainPC/parodies not uploaded yet/new new speedway",
+  "button_mappings": {
+    "left_click": "keep",
+    "right_click": "reject"
+  },
+  "wheel_mappings": {
+    "wheel_up": "previous",
+    "wheel_down": "next"
+  },
+  "options": {
+    "recursive_loading": false
+  }
+}
