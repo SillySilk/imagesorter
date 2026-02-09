@@ -739,6 +739,49 @@ class RapidCullerApp:
         if self.src_dir and self.keep_dir:
             self.btn_load.config(state="normal")
 
+    def auto_load_from_file(self, file_path):
+        """Auto-load images from a specific file path (used when launched via 'Open With').
+
+        Args:
+            file_path: Full path to the image file that was clicked
+        """
+        # Validate the file exists and is an image
+        if not os.path.isfile(file_path):
+            messagebox.showerror("Error", f"File not found: {file_path}")
+            return
+
+        # Extract directory and filename
+        src_directory = os.path.dirname(file_path)
+        clicked_filename = os.path.basename(file_path)
+
+        # Set source directory
+        self.src_dir = src_directory
+        self.lbl_src.config(text=src_directory)
+
+        # Set keep directory to parent directory (user can change later)
+        # This provides a sensible default for "Open With" scenarios
+        parent_dir = os.path.dirname(src_directory)
+        if parent_dir and os.path.isdir(parent_dir):
+            self.keep_dir = parent_dir
+            self.lbl_keep.config(text=parent_dir)
+
+        # Save settings
+        self.save_settings()
+
+        # Check if ready (should be true now)
+        self.check_ready()
+
+        # Auto-start culling
+        if self.src_dir and self.keep_dir:
+            self.load_images_start()
+
+            # Find and display the specific file that was clicked
+            for idx, img_info in enumerate(self.image_files):
+                if os.path.basename(img_info["full_path"]) == clicked_filename:
+                    self.current_index = idx
+                    self.show_current_image()
+                    break
+
     def open_settings(self):
         """Open settings dialog."""
         # Check if culling is in progress
@@ -899,5 +942,12 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = RapidCullerApp(root)
     # Need to update idletasks to get accurate initial frame dimensions for resizing
-    root.update_idletasks() 
+    root.update_idletasks()
+
+    # Check if a file path was passed as command-line argument (from "Open With")
+    if len(sys.argv) > 1:
+        file_path = sys.argv[1]
+        # Schedule auto-load after the main window is fully initialized
+        root.after(100, lambda: app.auto_load_from_file(file_path))
+
     root.mainloop()
