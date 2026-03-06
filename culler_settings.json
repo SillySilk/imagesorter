@@ -1,5 +1,5 @@
 {
-  "src": "C:/Output_All/txt2img/2026-02-05",
+  "src": "C:/keepme_mainPC/Completed AI Artwork BDSM/a Misc Series",
   "keep": "C:/keepme_mainPC/parodies not uploaded yet/new new speedway",
   "button_mappings": {
     "left_click": "keep",
@@ -11,5 +11,11 @@
   },
   "options": {
     "recursive_loading": false
+  },
+  "key_mappings": {
+    "random_image": "space",
+    "zoom_in": "Up",
+    "zoom_out": "Down",
+    "fit_to_page": "f"
   }
 }

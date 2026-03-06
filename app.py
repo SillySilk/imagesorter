@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import copy
+import random
 
 class ConfigManager:
     """Manages application configuration with validation, migration, and persistence."""
@@ -23,10 +24,17 @@ class ConfigManager:
         },
         "options": {
             "recursive_loading": False
+        },
+        "key_mappings": {
+            "space": "random",
+            "Up": "zoom_in",
+            "Down": "zoom_out",
+            "f": "fit_to_page"
         }
     }
 
-    VALID_ACTIONS = {"keep", "reject", "next", "previous", "skip", "disabled"}
+    VALID_ACTIONS = {"keep", "reject", "next", "previous", "skip", "disabled", "random",
+                     "zoom_in", "zoom_out", "fit_to_page"}
 
     def __init__(self, config_file="culler_settings.json"):
         self.config_file = config_file
@@ -124,24 +132,62 @@ class ConfigManager:
         if not isinstance(config["options"]["recursive_loading"], bool):
             return False, "recursive_loading must be a boolean"
 
+        # Validate key_mappings (optional for older configs, will be migrated)
+        if "key_mappings" in config:
+            if not isinstance(config["key_mappings"], dict):
+                return False, "key_mappings must be a dictionary"
+            for key, action in config["key_mappings"].items():
+                if not isinstance(key, str) or not isinstance(action, str):
+                    return False, f"Key mapping entries must be strings"
+                if action not in self.VALID_ACTIONS:
+                    return False, f"Invalid action '{action}' for key '{key}'"
+
         return True, ""
 
     def migrate(self, old_config):
         """Migrate old config format to new schema."""
-        # Check if already v2 format
-        if "button_mappings" in old_config:
-            return old_config
+        migrated = False
 
-        # v1 to v2 migration
-        print("Migrating config from v1 to v2 format...")
-        new_config = copy.deepcopy(self.DEFAULT_CONFIG)
-        new_config["src"] = old_config.get("src", "")
-        new_config["keep"] = old_config.get("keep", "")
+        # v1 to v2 migration (no button_mappings)
+        if "button_mappings" not in old_config:
+            print("Migrating config from v1 to v2 format...")
+            new_config = copy.deepcopy(self.DEFAULT_CONFIG)
+            new_config["src"] = old_config.get("src", "")
+            new_config["keep"] = old_config.get("keep", "")
+            old_config = new_config
+            migrated = True
 
-        # Save migrated config
-        self.save(new_config)
+        # v2 to v3 migration (add key_mappings if missing)
+        if "key_mappings" not in old_config:
+            print("Migrating config: adding key_mappings...")
+            old_config["key_mappings"] = copy.deepcopy(self.DEFAULT_CONFIG["key_mappings"])
+            migrated = True
 
-        return new_config
+        # v3 to v4 migration (flip key_mappings from {function: key} to {key: action})
+        if "key_mappings" in old_config:
+            km = old_config["key_mappings"]
+            # Detect old format: old keys were function names like "random_image", "zoom_in", etc.
+            old_function_keys = {"random_image", "zoom_in", "zoom_out", "fit_to_page"}
+            if old_function_keys & set(km.keys()):
+                print("Migrating config: flipping key_mappings to {key: action} format...")
+                # Map old function names to new action names
+                function_to_action = {
+                    "random_image": "random",
+                    "zoom_in": "zoom_in",
+                    "zoom_out": "zoom_out",
+                    "fit_to_page": "fit_to_page"
+                }
+                new_km = {}
+                for func_name, key_name in km.items():
+                    action = function_to_action.get(func_name, func_name)
+                    new_km[key_name] = action
+                old_config["key_mappings"] = new_km
+                migrated = True
+
+        if migrated:
+            self.save(old_config)
+
+        return old_config
 
     def get(self, key_path, default=None):
         """Get config value by dot notation (e.g., 'button_mappings.left_click')."""
@@ -178,6 +224,10 @@ class ActionMapper:
         "next": "action_next",
         "previous": "action_previous",
         "skip": "action_skip",
+        "random": "action_random",
+        "zoom_in": "zoom_in",
+        "zoom_out": "zoom_out",
+        "fit_to_page": "fit_to_page",
         "disabled": None
     }
 
@@ -185,6 +235,7 @@ class ActionMapper:
         """Initialize ActionMapper with reference to RapidCullerApp instance."""
         self.app = app_instance
         self.current_bindings = {}
+        self.key_bindings = {}  # Track keyboard bindings on root
 
     def bind_all(self, config):
         """Bind all events based on config."""
@@ -199,11 +250,15 @@ class ActionMapper:
         wheel_mappings = config.get("wheel_mappings", {})
         self._bind_wheel(wheel_mappings)
 
+        # Bind keyboard events
+        key_mappings = config.get("key_mappings", {})
+        self._bind_keys(key_mappings)
+
     def unbind_all(self):
         """Remove all current bindings."""
         image_label = self.app.image_label
 
-        # Unbind all previously bound events
+        # Unbind all previously bound mouse events
         for event_type in self.current_bindings:
             try:
                 image_label.unbind(event_type)
@@ -212,17 +267,28 @@ class ActionMapper:
 
         self.current_bindings.clear()
 
+        # Unbind keyboard events from root
+        root = self.app.root
+        for event_type in self.key_bindings:
+            try:
+                root.unbind(event_type)
+            except:
+                pass
+        self.key_bindings.clear()
+
     def _bind_buttons(self, button_config):
         """Bind mouse button events."""
         image_label = self.app.image_label
 
-        # Left click (Button-1)
+        # Left click - use pan-aware handler for zoom support
         left_action = button_config.get("left_click", "keep")
         if left_action != "disabled":
-            handler = self._create_handler(left_action)
-            if handler:
-                image_label.bind("<Button-1>", handler)
-                self.current_bindings["<Button-1>"] = left_action
+            image_label.bind("<ButtonPress-1>", self.app._on_left_click)
+            image_label.bind("<B1-Motion>", self.app._on_pan_motion)
+            image_label.bind("<ButtonRelease-1>", self.app._on_left_release)
+            self.current_bindings["<ButtonPress-1>"] = left_action
+            self.current_bindings["<B1-Motion>"] = "pan"
+            self.current_bindings["<ButtonRelease-1>"] = "pan_end"
 
         # Right click (Button-3)
         right_action = button_config.get("right_click", "reject")
@@ -258,6 +324,26 @@ class ActionMapper:
         if wheel_down_handler:
             image_label.bind("<Button-5>", wheel_down_handler)
             self.current_bindings["<Button-5>"] = wheel_down_action
+
+    def _bind_keys(self, key_config):
+        """Bind keyboard events based on key_mappings config ({key: action} format)."""
+        root = self.app.root
+
+        for key_name, action_name in key_config.items():
+            if action_name == "disabled":
+                continue
+
+            # Convert key name to tkinter event string
+            key_name = key_name.strip()
+            if key_name.lower() == "space":
+                event_str = "<space>"
+            else:
+                event_str = f"<{key_name}>"
+
+            handler = self._create_handler(action_name)
+            if handler:
+                root.bind(event_str, handler)
+                self.key_bindings[event_str] = action_name
 
     def _create_handler(self, action_name):
         """Create event handler that calls appropriate action method."""
@@ -447,6 +533,122 @@ class SettingsDialog:
 
         self.widgets["wheel_down"] = wheel_down_var
 
+    def _build_key_mappings_section(self, parent_frame):
+        """Build key mapping controls with dynamic rows: [key capture] [action dropdown] [remove]."""
+        frame = tk.LabelFrame(parent_frame, text="Keyboard Mappings", padx=10, pady=10)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        self.key_mappings_frame = frame
+        self.key_mapping_rows = []
+
+        # Action options for dropdown (display name -> config value)
+        self.key_action_options = [
+            "Keep", "Reject", "Next", "Previous", "Skip", "Random",
+            "Zoom In", "Zoom Out", "Fit to Page", "Disabled"
+        ]
+        self.key_action_display_to_value = {
+            "Keep": "keep", "Reject": "reject", "Next": "next",
+            "Previous": "previous", "Skip": "skip", "Random": "random",
+            "Zoom In": "zoom_in", "Zoom Out": "zoom_out",
+            "Fit to Page": "fit_to_page", "Disabled": "disabled"
+        }
+        self.key_action_value_to_display = {v: k for k, v in self.key_action_display_to_value.items()}
+
+        # Load current key mappings
+        current_keys = self.temp_config.get("key_mappings", copy.deepcopy(ConfigManager.DEFAULT_CONFIG["key_mappings"]))
+
+        for key_name, action_name in current_keys.items():
+            self._add_key_mapping_row(key_name, action_name)
+
+        # Add button
+        self.key_add_btn = tk.Button(frame, text="+ Add Key Binding", command=self._add_empty_key_mapping_row)
+        self.key_add_btn.grid(row=100, column=0, columnspan=4, pady=(5, 0))
+
+    def _add_key_mapping_row(self, key_name="", action_name="disabled"):
+        """Add a single key mapping row to the UI."""
+        frame = self.key_mappings_frame
+        row_idx = len(self.key_mapping_rows)
+
+        # Key name entry (readonly, set via capture)
+        key_var = tk.StringVar(self.dialog, value=key_name)
+        entry = tk.Entry(frame, textvariable=key_var, width=12, justify="center", state="readonly")
+        entry.grid(row=row_idx, column=0, sticky="w", padx=(5, 2), pady=3)
+
+        # Set button for key capture
+        set_btn = tk.Button(
+            frame, text="Set",
+            command=lambda e=entry, v=key_var: self._capture_key(e, v)
+        )
+        set_btn.grid(row=row_idx, column=1, padx=2, pady=3)
+
+        # Action label
+        action_label = tk.Label(frame, text="Action:")
+        action_label.grid(row=row_idx, column=2, padx=(5, 2), pady=3)
+
+        # Action dropdown
+        action_display = self.key_action_value_to_display.get(action_name, "Disabled")
+        action_var = tk.StringVar(self.dialog, value=action_display)
+        action_menu = tk.OptionMenu(frame, action_var, *self.key_action_options)
+        action_menu.config(width=10)
+        action_menu.grid(row=row_idx, column=3, padx=2, pady=3)
+
+        # Remove button
+        remove_btn = tk.Button(frame, text="\u2715", width=2)
+        row_data = {"key_var": key_var, "action_var": action_var,
+                    "widgets": [entry, set_btn, action_label, action_menu, remove_btn]}
+        remove_btn.config(command=lambda rd=row_data: self._remove_key_mapping_row(rd))
+        remove_btn.grid(row=row_idx, column=4, padx=2, pady=3)
+
+        self.key_mapping_rows.append(row_data)
+
+    def _add_empty_key_mapping_row(self):
+        """Add an empty key mapping row and prompt for key capture."""
+        self._add_key_mapping_row("", "disabled")
+        # Auto-trigger key capture for the new row
+        new_row = self.key_mapping_rows[-1]
+        entry_widget = new_row["widgets"][0]
+        self._capture_key(entry_widget, new_row["key_var"])
+
+    def _remove_key_mapping_row(self, row_data):
+        """Remove a key mapping row from the UI."""
+        if row_data in self.key_mapping_rows:
+            self.key_mapping_rows.remove(row_data)
+            for w in row_data["widgets"]:
+                w.destroy()
+            # Re-layout remaining rows
+            self._relayout_key_mapping_rows()
+
+    def _relayout_key_mapping_rows(self):
+        """Re-grid all key mapping rows after a removal."""
+        for idx, row_data in enumerate(self.key_mapping_rows):
+            widgets = row_data["widgets"]  # [entry, set_btn, action_label, action_menu, remove_btn]
+            widgets[0].grid(row=idx, column=0, sticky="w", padx=(5, 2), pady=3)
+            widgets[1].grid(row=idx, column=1, padx=2, pady=3)
+            widgets[2].grid(row=idx, column=2, padx=(5, 2), pady=3)
+            widgets[3].grid(row=idx, column=3, padx=2, pady=3)
+            widgets[4].grid(row=idx, column=4, padx=2, pady=3)
+
+    def _capture_key(self, entry, var):
+        """Capture a key press and set it as the binding."""
+        entry.config(state="normal")
+        entry.delete(0, tk.END)
+        entry.insert(0, "Press a key...")
+        entry.config(state="readonly")
+
+        def on_key(event):
+            # Convert keysym to our config format
+            key_name = event.keysym
+            var.set(key_name)
+            entry.config(state="normal")
+            entry.delete(0, tk.END)
+            entry.insert(0, key_name)
+            entry.config(state="readonly")
+            # Unbind after capture
+            self.dialog.unbind("<Key>")
+
+        self.dialog.bind("<Key>", on_key)
+        self.dialog.focus_set()
+
     def _build_options_section(self, parent_frame):
         """Build options controls."""
         # Create LabelFrame for options
@@ -509,7 +711,7 @@ class SettingsDialog:
         # Create modal Toplevel window
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Settings")
-        self.dialog.geometry("500x400")
+        self.dialog.geometry("550x600")
         self.dialog.transient(self.parent)  # Set parent window
         self.dialog.grab_set()  # Make modal
 
@@ -522,6 +724,7 @@ class SettingsDialog:
         # Build UI sections (pack from top)
         self._build_button_mappings_section(self.dialog)
         self._build_wheel_mappings_section(self.dialog)
+        self._build_key_mappings_section(self.dialog)
         self._build_options_section(self.dialog)
 
         # Make dialog modal - wait for window to close
@@ -535,6 +738,16 @@ class SettingsDialog:
         self.temp_config["wheel_mappings"]["wheel_up"] = self.widgets["wheel_up"].get().lower()
         self.temp_config["wheel_mappings"]["wheel_down"] = self.widgets["wheel_down"].get().lower()
         self.temp_config["options"]["recursive_loading"] = self.widgets["recursive_loading"].get()
+
+        # Read key mappings from dynamic rows
+        new_key_mappings = {}
+        for row_data in self.key_mapping_rows:
+            key_name = row_data["key_var"].get().strip()
+            action_display = row_data["action_var"].get()
+            action_value = self.key_action_display_to_value.get(action_display, "disabled")
+            if key_name:  # Skip rows with empty key
+                new_key_mappings[key_name] = action_value
+        self.temp_config["key_mappings"] = new_key_mappings
 
         # Validate configuration
         is_valid, error_msg = self.config_manager.validate(self.temp_config)
@@ -566,13 +779,20 @@ class SettingsDialog:
         """Return warning messages for potentially problematic configs."""
         warnings = []
 
-        # Check if no buttons are mapped to keep/reject
+        # Check if no inputs are mapped to keep/reject
         button_actions = list(config["button_mappings"].values())
         wheel_actions = list(config["wheel_mappings"].values())
-        all_actions = button_actions + wheel_actions
+        key_actions = list(config.get("key_mappings", {}).values())
+        all_actions = button_actions + wheel_actions + key_actions
 
         if "keep" not in all_actions and "reject" not in all_actions:
-            warnings.append("⚠ No buttons or wheel actions mapped to Keep or Reject.\nYou won't be able to sort images!")
+            warnings.append("No buttons, wheel, or keys mapped to Keep or Reject.\nYou won't be able to sort images!")
+
+        # Check for duplicate keys in key mappings
+        key_mappings = config.get("key_mappings", {})
+        keys = list(key_mappings.keys())
+        if len(keys) != len(set(keys)):
+            warnings.append("Duplicate keys detected in keyboard mappings.")
 
         return "\n".join(warnings) if warnings else None
 
@@ -595,6 +815,18 @@ class SettingsDialog:
         self.widgets["wheel_down"].set(defaults["wheel_mappings"]["wheel_down"].capitalize())
         self.widgets["recursive_loading"].set(defaults["options"]["recursive_loading"])
 
+        # Reset key mappings - rebuild the rows
+        for row_data in self.key_mapping_rows[:]:
+            for w in row_data["widgets"]:
+                w.destroy()
+        self.key_mapping_rows.clear()
+        # Also destroy any "Action:" labels left in the grid
+        for widget in self.key_mappings_frame.winfo_children():
+            if widget != self.key_add_btn:
+                widget.destroy()
+        for key_name, action_name in defaults["key_mappings"].items():
+            self._add_key_mapping_row(key_name, action_name)
+
 class RapidCullerApp:
     def __init__(self, root):
         self.root = root
@@ -612,6 +844,17 @@ class RapidCullerApp:
         self.current_index = 0
         self.photo_image = None # Keep reference to avoid garbage collection
 
+        # Zoom and pan state
+        self.zoom_level = 1.0
+        self.zoom_step = 0.25
+        self.min_zoom = 0.1
+        self.max_zoom = 10.0
+        self.pan_offset = [0, 0]
+        self.panning = False
+        self.pan_start = None
+        self.drag_distance = 0
+        self.current_pil_image = None  # Cache the full-size PIL image
+
         # --- GUI Layout ---
         
         # Top Control Panel
@@ -619,23 +862,23 @@ class RapidCullerApp:
         control_frame.pack(fill="x")
 
         # Source Button and Label
-        btn_src = tk.Button(control_frame, text="1. Select SOURCE Folder", bg="#d9d9d9", command=self.select_src)
+        btn_src = tk.Button(control_frame, text="1. Select SOURCE Folder", bg="#d9d9d9", command=self.select_src, takefocus=False)
         btn_src.grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.lbl_src = tk.Label(control_frame, text="No folder selected", bg="#e1e1e1", anchor="w")
         self.lbl_src.grid(row=0, column=1, sticky="we", padx=5)
 
         # Keep Button and Label
-        btn_keep = tk.Button(control_frame, text="2. Select KEEP Destination", bg="#d9d9d9", command=self.select_keep)
+        btn_keep = tk.Button(control_frame, text="2. Select KEEP Destination", bg="#d9d9d9", command=self.select_keep, takefocus=False)
         btn_keep.grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.lbl_keep = tk.Label(control_frame, text="No folder selected", bg="#e1e1e1", anchor="w")
         self.lbl_keep.grid(row=1, column=1, sticky="we", padx=5)
 
         # Load Button
-        self.btn_load = tk.Button(control_frame, text="3. START CULLING", bg="#28a745", fg="white", font=("Arial", 11, "bold"), state="disabled", command=self.load_images_start)
+        self.btn_load = tk.Button(control_frame, text="3. START CULLING", bg="#28a745", fg="white", font=("Arial", 11, "bold"), state="disabled", command=self.load_images_start, takefocus=False)
         self.btn_load.grid(row=2, column=0, columnspan=2, sticky="we", padx=5, pady=(10,5))
 
         # Settings Button
-        btn_settings = tk.Button(control_frame, text="⚙ Settings", bg="#6c757d", fg="white", command=self.open_settings)
+        btn_settings = tk.Button(control_frame, text="⚙ Settings", bg="#6c757d", fg="white", command=self.open_settings, takefocus=False)
         btn_settings.grid(row=2, column=2, sticky="e", padx=5, pady=(10,5))
 
         control_frame.columnconfigure(1, weight=1)
@@ -655,6 +898,10 @@ class RapidCullerApp:
         
         self.image_label = tk.Label(self.image_frame, text="Load folders to begin", bg="#333333", fg="#888888")
         self.image_label.pack(fill="both", expand=True)
+
+        # Click anywhere on the image area to reclaim focus for key bindings
+        self.image_label.bind("<ButtonRelease-1>", lambda e: self.root.focus_set(), add=True)
+        self.image_label.bind("<ButtonRelease-3>", lambda e: self.root.focus_set(), add=True)
 
         # Initialize ActionMapper for dynamic event binding
         self.action_mapper = ActionMapper(self)
@@ -707,16 +954,39 @@ class RapidCullerApp:
         self.check_ready()
 
     def _update_instructions_label(self, config):
-        """Update instruction label to show current button/wheel mappings."""
+        """Update instruction label to show current button/wheel/key mappings."""
         # Get current mappings
         left = config.get("button_mappings", {}).get("left_click", "keep").upper()
         right = config.get("button_mappings", {}).get("right_click", "reject").upper()
         wheel_up = config.get("wheel_mappings", {}).get("wheel_up", "previous").upper()
         wheel_down = config.get("wheel_mappings", {}).get("wheel_down", "next").upper()
 
+        # Build key mapping display from new {key: action} format
+        key_mappings = config.get("key_mappings", {})
+        key_parts = []
+        for key_name, action_name in key_mappings.items():
+            if action_name != "disabled":
+                display_key = self._format_key_name(key_name)
+                display_action = action_name.upper().replace("_", " ")
+                key_parts.append(f"{display_key}: {display_action}")
+
         # Build instruction text
         instructions = f"L-Click: {left}  |  R-Click: {right}  |  Wheel: {wheel_up}/{wheel_down}"
+        if key_parts:
+            instructions += "  |  " + "  |  ".join(key_parts)
         self.lbl_instructions.config(text=instructions)
+
+    @staticmethod
+    def _format_key_name(key):
+        """Format a key name for display."""
+        key_display = {
+            "space": "Space",
+            "Up": "\u2191",
+            "Down": "\u2193",
+            "Left": "\u2190",
+            "Right": "\u2192",
+        }
+        return key_display.get(key, key.upper() if len(key) == 1 else key)
 
     # --- Folder Selection Functions ---
     def select_src(self):
@@ -825,6 +1095,9 @@ class RapidCullerApp:
         # Disable controls once started so paths don't change mid-stream
         self.btn_load.config(state="disabled", text="Culling in progress...")
 
+        # Set focus to root so keyboard bindings (spacebar, zoom, etc.) work immediately
+        self.root.focus_set()
+
     def show_current_image(self):
         if self.current_index < len(self.image_files):
             # Get image info dict
@@ -842,26 +1115,72 @@ class RapidCullerApp:
             self.lbl_status.config(text=f"Image {self.current_index + 1} of {len(self.image_files)}: {display_path}")
 
             try:
-                # Load and Resize Image to fit window
-                pil_img = Image.open(full_path)
+                # Load full-size PIL image and cache it
+                self.current_pil_image = Image.open(full_path)
+                # Force load so file handle is released
+                self.current_pil_image.load()
 
-                # Get current window dimensions for resizing
-                win_w = self.image_frame.winfo_width()
-                win_h = self.image_frame.winfo_height()
+                # Reset zoom and pan for new image
+                self.zoom_level = 1.0
+                self.pan_offset = [0, 0]
 
-                # Ensure dimensions are valid before resizing
-                if win_w > 10 and win_h > 10:
-                    # Use thumbnail to resize while maintaining aspect ratio
-                    pil_img.thumbnail((win_w, win_h), Image.Resampling.LANCZOS)
-
-                self.photo_image = ImageTk.PhotoImage(pil_img)
-                self.image_label.config(image=self.photo_image, text="") # Remove placeholder text
+                self._render_image()
 
             except Exception as e:
                 print(f"Error loading image {display_path}: {e}")
+                self.current_pil_image = None
                 self.action_reject(None) # Auto-reject corrupted images
         else:
             self.finish_culling()
+
+    def _render_image(self):
+        """Render current image with zoom and pan applied."""
+        if self.current_pil_image is None:
+            return
+
+        win_w = self.image_frame.winfo_width()
+        win_h = self.image_frame.winfo_height()
+
+        if win_w <= 10 or win_h <= 10:
+            return
+
+        img = self.current_pil_image
+        img_w, img_h = img.size
+
+        if self.zoom_level == 1.0:
+            # Fit to page: thumbnail behavior
+            display = img.copy()
+            display.thumbnail((win_w, win_h), Image.Resampling.LANCZOS)
+        else:
+            # Calculate the fit-to-page scale first
+            fit_scale = min(win_w / img_w, win_h / img_h)
+            # Actual scale is fit_scale * zoom_level
+            actual_scale = fit_scale * self.zoom_level
+            scaled_w = int(img_w * actual_scale)
+            scaled_h = int(img_h * actual_scale)
+
+            # Resize the full image
+            scaled = img.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+
+            # Clamp pan offset so we don't pan beyond image edges
+            max_pan_x = max(0, (scaled_w - win_w) / 2)
+            max_pan_y = max(0, (scaled_h - win_h) / 2)
+            self.pan_offset[0] = max(-max_pan_x, min(max_pan_x, self.pan_offset[0]))
+            self.pan_offset[1] = max(-max_pan_y, min(max_pan_y, self.pan_offset[1]))
+
+            # Calculate crop region (center + pan offset)
+            cx = scaled_w / 2 + self.pan_offset[0]
+            cy = scaled_h / 2 + self.pan_offset[1]
+
+            left = max(0, int(cx - win_w / 2))
+            top = max(0, int(cy - win_h / 2))
+            right = min(scaled_w, left + win_w)
+            bottom = min(scaled_h, top + win_h)
+
+            display = scaled.crop((left, top, right, bottom))
+
+        self.photo_image = ImageTk.PhotoImage(display)
+        self.image_label.config(image=self.photo_image, text="")
 
     def move_and_advance(self, destination):
         if self.current_index < len(self.image_files):
@@ -900,8 +1219,14 @@ class RapidCullerApp:
                 messagebox.showerror("File Error", f"Could not move file:\n{e}")
                 return # Don't advance index if move failed
 
-            # Advance index *only* if move was successful
-            self.current_index += 1
+            # Remove the moved image from the list to keep index accurate
+            self.image_files.pop(self.current_index)
+
+            # Don't increment index - the next image is now at the current index
+            # If we're past the end of the list, decrement to show the last image
+            if self.current_index >= len(self.image_files) and len(self.image_files) > 0:
+                self.current_index = len(self.image_files) - 1
+
             # Add a tiny delay to allow UI to refresh before showing next
             self.root.after(10, self.show_current_image)
 
@@ -931,6 +1256,96 @@ class RapidCullerApp:
         """Mark as skipped and advance (future: track skipped items)."""
         # For now, just advance without moving file
         self.action_next(event)
+
+    def action_random(self, event):
+        """Jump to a random image."""
+        if self.image_files and len(self.image_files) > 1:
+            new_index = self.current_index
+            # Ensure we pick a different image
+            while new_index == self.current_index:
+                new_index = random.randint(0, len(self.image_files) - 1)
+            self.current_index = new_index
+            self.show_current_image()
+        elif self.image_files:
+            self.show_current_image()
+
+    def zoom_in(self, event):
+        """Zoom into the current image."""
+        if self.current_pil_image is None:
+            return
+        self.zoom_level = min(self.max_zoom, self.zoom_level + self.zoom_step)
+        self._render_image()
+
+    def zoom_out(self, event):
+        """Zoom out of the current image."""
+        if self.current_pil_image is None:
+            return
+        new_zoom = self.zoom_level - self.zoom_step
+        if new_zoom < 1.0:
+            new_zoom = 1.0
+            self.pan_offset = [0, 0]
+        self.zoom_level = new_zoom
+        self._render_image()
+
+    def fit_to_page(self, event):
+        """Reset zoom to fit image in window."""
+        if self.current_pil_image is None:
+            return
+        self.zoom_level = 1.0
+        self.pan_offset = [0, 0]
+        self._render_image()
+
+    def _on_pan_start(self, event):
+        """Handle mouse press for panning."""
+        if self.zoom_level > 1.0:
+            self.panning = True
+            self.pan_start = (event.x, event.y)
+            self.drag_distance = 0
+
+    def _on_pan_motion(self, event):
+        """Handle mouse drag for panning."""
+        if self.panning and self.pan_start:
+            dx = event.x - self.pan_start[0]
+            dy = event.y - self.pan_start[1]
+            self.drag_distance += abs(dx) + abs(dy)
+            self.pan_offset[0] -= dx
+            self.pan_offset[1] -= dy
+            self.pan_start = (event.x, event.y)
+            self._render_image()
+
+    def _on_pan_end(self, event):
+        """Handle mouse release after panning."""
+        was_panning = self.panning and self.drag_distance > 5
+        self.panning = False
+        self.pan_start = None
+        # If it was a click (not a drag) and we're zoomed, don't consume the event
+        # The left-click action is handled separately via _on_left_click
+        return was_panning
+
+    def _on_left_click(self, event):
+        """Handle left click - either pan start or action."""
+        if self.zoom_level > 1.0:
+            # Start pan tracking
+            self._on_pan_start(event)
+        else:
+            # Not zoomed - execute the configured left-click action
+            self._do_left_click_action(event)
+
+    def _on_left_release(self, event):
+        """Handle left button release."""
+        was_drag = self._on_pan_end(event)
+        if self.zoom_level > 1.0 and not was_drag:
+            # Was a click while zoomed (not a drag) - execute action
+            self._do_left_click_action(event)
+
+    def _do_left_click_action(self, event):
+        """Execute the configured left-click action."""
+        config = self.config_manager.config
+        left_action = config.get("button_mappings", {}).get("left_click", "keep")
+        if left_action != "disabled":
+            handler = self.action_mapper._create_handler(left_action)
+            if handler:
+                handler(event)
 
     def finish_culling(self):
         self.image_label.config(image="", text="--- NO MORE IMAGES ---", fg="white", font=("Arial", 24))
