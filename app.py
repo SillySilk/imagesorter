@@ -893,6 +893,19 @@ class RapidCullerApp:
         self.lbl_status = tk.Label(instr_frame, text="Waiting to start...", font=("Arial", 9), bg="#f0f0f0", fg="blue")
         self.lbl_status.pack(side="right")
 
+        # Zoom Toolbar
+        zoom_bar = tk.Frame(root, bg="#dcdcdc", padx=6, pady=4)
+        zoom_bar.pack(fill="x")
+        tk.Label(zoom_bar, text="Zoom:", bg="#dcdcdc", font=("Arial", 9)).pack(side="left", padx=(2, 4))
+        tk.Button(zoom_bar, text=" - ", font=("Arial", 10, "bold"), bg="#d0d0d0",
+                  relief="raised", command=lambda: self.zoom_out(None), takefocus=False).pack(side="left", padx=2)
+        tk.Button(zoom_bar, text=" + ", font=("Arial", 10, "bold"), bg="#d0d0d0",
+                  relief="raised", command=lambda: self.zoom_in(None), takefocus=False).pack(side="left", padx=2)
+        tk.Button(zoom_bar, text="Fit", font=("Arial", 9), bg="#d0d0d0",
+                  relief="raised", command=lambda: self.fit_to_page(None), takefocus=False).pack(side="left", padx=(2, 8))
+        self.lbl_zoom_level = tk.Label(zoom_bar, text="Fit", bg="#dcdcdc", fg="#555", font=("Arial", 9))
+        self.lbl_zoom_level.pack(side="left")
+
         # Main Image Display Area
         self.image_frame = tk.Frame(root, bg="#333333")
         self.image_frame.pack(fill="both", expand=True)
@@ -1255,6 +1268,15 @@ class RapidCullerApp:
 
         self.photo_image = ImageTk.PhotoImage(display)
         self.image_label.config(image=self.photo_image, text="")
+
+        # Update zoom level display
+        if self.zoom_level == 1.0:
+            zoom_text = "Fit"
+        elif self.zoom_level == int(self.zoom_level):
+            zoom_text = f"{int(self.zoom_level)}x"
+        else:
+            zoom_text = f"{self.zoom_level:.2f}x"
+        self.lbl_zoom_level.config(text=zoom_text)
 
     def move_and_advance(self, destination):
         if self.current_index < len(self.image_files):
