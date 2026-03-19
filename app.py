@@ -11,26 +11,34 @@ import random
 class ConfigManager:
     """Manages application configuration with validation, migration, and persistence."""
 
+    DEFAULT_SORT_SETTINGS = {
+        "button_mappings": {"left_click": "keep", "right_click": "reject"},
+        "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
+        "key_mappings": {"space": "random", "Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page"}
+    }
+
+    DEFAULT_VIEW_SETTINGS = {
+        "button_mappings": {"left_click": "next", "right_click": "previous"},
+        "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
+        "key_mappings": {"Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page", "space": "random"}
+    }
+
     DEFAULT_CONFIG = {
         "src": "",
         "keep": "",
         "app_mode": "sort",
-        "button_mappings": {
-            "left_click": "keep",
-            "right_click": "reject"
+        "sort_settings": {
+            "button_mappings": {"left_click": "keep", "right_click": "reject"},
+            "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
+            "key_mappings": {"space": "random", "Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page"}
         },
-        "wheel_mappings": {
-            "wheel_up": "previous",
-            "wheel_down": "next"
+        "view_settings": {
+            "button_mappings": {"left_click": "next", "right_click": "previous"},
+            "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
+            "key_mappings": {"Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page", "space": "random"}
         },
         "options": {
             "recursive_loading": False
-        },
-        "key_mappings": {
-            "space": "random",
-            "Up": "zoom_in",
-            "Down": "zoom_out",
-            "f": "fit_to_page"
         }
     }
 
@@ -85,68 +93,72 @@ class ConfigManager:
 
     def validate(self, config):
         """Validate config structure, return (is_valid, error_message)."""
-        # Check required top-level keys
         if not isinstance(config, dict):
             return False, "Config must be a dictionary"
 
-        # v1 config (old format) is valid for migration
-        if "src" in config and "keep" in config and "button_mappings" not in config:
+        # v1 config (no button_mappings, no sort_settings): valid for migration
+        if "src" in config and "keep" in config and "button_mappings" not in config and "sort_settings" not in config:
             return True, ""
 
-        # v2 config validation
-        required_keys = ["src", "keep", "button_mappings", "wheel_mappings", "options"]
-        for key in required_keys:
+        # Old v2-v4 format (button_mappings at top level): valid for migration
+        if "button_mappings" in config and "sort_settings" not in config:
+            if not isinstance(config["button_mappings"], dict):
+                return False, "button_mappings must be a dictionary"
+            for key in ("left_click", "right_click"):
+                if key not in config["button_mappings"]:
+                    return False, f"Missing button mapping: {key}"
+                if config["button_mappings"][key] not in self.VALID_ACTIONS:
+                    return False, f"Invalid action for {key}"
+            return True, ""  # Will be migrated to v5
+
+        # New v5 format: requires sort_settings and view_settings
+        for key in ("src", "keep", "sort_settings", "view_settings", "options"):
             if key not in config:
                 return False, f"Missing required key: {key}"
 
-        # Validate button mappings
-        if not isinstance(config["button_mappings"], dict):
-            return False, "button_mappings must be a dictionary"
+        # Validate each mode's settings block
+        for mode in ("sort", "view"):
+            skey = f"{mode}_settings"
+            s = config[skey]
+            if not isinstance(s, dict):
+                return False, f"{skey} must be a dictionary"
 
-        button_keys = ["left_click", "right_click"]
-        for key in button_keys:
-            if key not in config["button_mappings"]:
-                return False, f"Missing button mapping: {key}"
-            action = config["button_mappings"][key]
-            if action not in self.VALID_ACTIONS:
-                return False, f"Invalid action '{action}' for {key}"
+            bm = s.get("button_mappings", {})
+            if not isinstance(bm, dict):
+                return False, f"{skey}.button_mappings must be a dictionary"
+            for k in ("left_click", "right_click"):
+                if k not in bm:
+                    return False, f"Missing {skey}.button_mappings.{k}"
+                if bm[k] not in self.VALID_ACTIONS:
+                    return False, f"Invalid action '{bm[k]}' in {skey}.button_mappings.{k}"
 
-        # Validate wheel mappings
-        if not isinstance(config["wheel_mappings"], dict):
-            return False, "wheel_mappings must be a dictionary"
+            wm = s.get("wheel_mappings", {})
+            if not isinstance(wm, dict):
+                return False, f"{skey}.wheel_mappings must be a dictionary"
+            for k in ("wheel_up", "wheel_down"):
+                if k not in wm:
+                    return False, f"Missing {skey}.wheel_mappings.{k}"
+                if wm[k] not in self.VALID_ACTIONS:
+                    return False, f"Invalid action '{wm[k]}' in {skey}.wheel_mappings.{k}"
 
-        wheel_keys = ["wheel_up", "wheel_down"]
-        for key in wheel_keys:
-            if key not in config["wheel_mappings"]:
-                return False, f"Missing wheel mapping: {key}"
-            action = config["wheel_mappings"][key]
-            if action not in self.VALID_ACTIONS:
-                return False, f"Invalid action '{action}' for {key}"
+            km = s.get("key_mappings", {})
+            if not isinstance(km, dict):
+                return False, f"{skey}.key_mappings must be a dictionary"
+            for key_name, action in km.items():
+                if action not in self.VALID_ACTIONS:
+                    return False, f"Invalid action '{action}' for key '{key_name}' in {skey}"
 
         # Validate options
         if not isinstance(config["options"], dict):
             return False, "options must be a dictionary"
-
         if "recursive_loading" not in config["options"]:
             return False, "Missing option: recursive_loading"
-
         if not isinstance(config["options"]["recursive_loading"], bool):
             return False, "recursive_loading must be a boolean"
 
-        # Validate app_mode (optional field)
-        if "app_mode" in config:
-            if config["app_mode"] not in ("sort", "view"):
-                return False, "app_mode must be 'sort' or 'view'"
-
-        # Validate key_mappings (optional for older configs, will be migrated)
-        if "key_mappings" in config:
-            if not isinstance(config["key_mappings"], dict):
-                return False, "key_mappings must be a dictionary"
-            for key, action in config["key_mappings"].items():
-                if not isinstance(key, str) or not isinstance(action, str):
-                    return False, f"Key mapping entries must be strings"
-                if action not in self.VALID_ACTIONS:
-                    return False, f"Invalid action '{action}' for key '{key}'"
+        # Validate app_mode (optional)
+        if "app_mode" in config and config["app_mode"] not in ("sort", "view"):
+            return False, "app_mode must be 'sort' or 'view'"
 
         return True, ""
 
@@ -164,24 +176,20 @@ class ConfigManager:
             migrated = True
 
         # v2 to v3 migration (add key_mappings if missing)
-        if "key_mappings" not in old_config:
+        if "key_mappings" not in old_config and "sort_settings" not in old_config:
             print("Migrating config: adding key_mappings...")
-            old_config["key_mappings"] = copy.deepcopy(self.DEFAULT_CONFIG["key_mappings"])
+            old_config["key_mappings"] = copy.deepcopy(self.DEFAULT_SORT_SETTINGS["key_mappings"])
             migrated = True
 
         # v3 to v4 migration (flip key_mappings from {function: key} to {key: action})
-        if "key_mappings" in old_config:
+        if "key_mappings" in old_config and "sort_settings" not in old_config:
             km = old_config["key_mappings"]
-            # Detect old format: old keys were function names like "random_image", "zoom_in", etc.
             old_function_keys = {"random_image", "zoom_in", "zoom_out", "fit_to_page"}
             if old_function_keys & set(km.keys()):
                 print("Migrating config: flipping key_mappings to {key: action} format...")
-                # Map old function names to new action names
                 function_to_action = {
-                    "random_image": "random",
-                    "zoom_in": "zoom_in",
-                    "zoom_out": "zoom_out",
-                    "fit_to_page": "fit_to_page"
+                    "random_image": "random", "zoom_in": "zoom_in",
+                    "zoom_out": "zoom_out", "fit_to_page": "fit_to_page"
                 }
                 new_km = {}
                 for func_name, key_name in km.items():
@@ -189,6 +197,22 @@ class ConfigManager:
                     new_km[key_name] = action
                 old_config["key_mappings"] = new_km
                 migrated = True
+
+        # v4 to v5 migration: move flat mappings into sort_settings, add default view_settings
+        if "button_mappings" in old_config and "sort_settings" not in old_config:
+            print("Migrating config: restructuring to per-mode settings (v5)...")
+            old_config["sort_settings"] = {
+                "button_mappings": old_config.pop("button_mappings"),
+                "wheel_mappings": old_config.pop("wheel_mappings", copy.deepcopy(self.DEFAULT_SORT_SETTINGS["wheel_mappings"])),
+                "key_mappings": old_config.pop("key_mappings", copy.deepcopy(self.DEFAULT_SORT_SETTINGS["key_mappings"]))
+            }
+            old_config["view_settings"] = copy.deepcopy(self.DEFAULT_VIEW_SETTINGS)
+            migrated = True
+
+        # Ensure view_settings exists (in case of partial migration)
+        if "sort_settings" in old_config and "view_settings" not in old_config:
+            old_config["view_settings"] = copy.deepcopy(self.DEFAULT_VIEW_SETTINGS)
+            migrated = True
 
         if migrated:
             self.save(old_config)
@@ -244,21 +268,16 @@ class ActionMapper:
         self.key_bindings = {}  # Track keyboard bindings on root
 
     def bind_all(self, config):
-        """Bind all events based on config."""
-        # Remove existing bindings first
+        """Bind all events based on the current mode's settings."""
         self.unbind_all()
 
-        # Bind button events
-        button_mappings = config.get("button_mappings", {})
-        self._bind_buttons(button_mappings)
+        # Get mode-specific settings block; fall back to flat config for old formats
+        mode = self.app.app_mode
+        settings = config.get(f"{mode}_settings", config)
 
-        # Bind wheel events
-        wheel_mappings = config.get("wheel_mappings", {})
-        self._bind_wheel(wheel_mappings)
-
-        # Bind keyboard events
-        key_mappings = config.get("key_mappings", {})
-        self._bind_keys(key_mappings)
+        self._bind_buttons(settings.get("button_mappings", {}))
+        self._bind_wheel(settings.get("wheel_mappings", {}))
+        self._bind_keys(settings.get("key_mappings", {}))
 
     def unbind_all(self):
         """Remove all current bindings."""
@@ -466,96 +485,23 @@ class RecursiveScanner:
         return filename.lower().endswith(RecursiveScanner.VALID_EXTENSIONS)
 
 class SettingsDialog:
-    """Modal dialog for configuring application settings."""
+    """Modal dialog for configuring application settings (tabbed by mode)."""
 
     def __init__(self, parent, config_manager, app_mode="sort"):
-        """Initialize SettingsDialog with parent window and config manager."""
         self.parent = parent
         self.config_manager = config_manager
         self.app_mode = app_mode
         self.dialog = None
+        self.notebook = None
         self.temp_config = {}
-        self.widgets = {}
 
-    def _build_button_mappings_section(self, parent_frame):
-        """Build button mapping controls."""
-        # Create LabelFrame for button mappings
-        frame = tk.LabelFrame(parent_frame, text="Button Mappings", padx=10, pady=10)
-        frame.pack(fill="x", padx=10, pady=5)
+        # Per-mode widget storage
+        self.mode_widgets = {"sort": {}, "view": {}}
+        self.key_mapping_rows = {"sort": [], "view": []}
+        self.key_mappings_frames = {"sort": None, "view": None}
+        self.key_add_btns = {"sort": None, "view": None}
 
-        # Action options for dropdowns
-        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Disabled"]
-
-        # Left Click mapping
-        tk.Label(frame, text="Left Click:", anchor="w").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-
-        left_var = tk.StringVar(self.dialog)
-        current_left = self.temp_config.get("button_mappings", {}).get("left_click", "keep")
-        left_var.set(current_left.capitalize())
-
-        left_menu = tk.OptionMenu(frame, left_var, *action_options)
-        left_menu.config(width=12)
-        left_menu.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-
-        self.widgets["left_click"] = left_var
-
-        # Right Click mapping
-        tk.Label(frame, text="Right Click:", anchor="w").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-
-        right_var = tk.StringVar(self.dialog)
-        current_right = self.temp_config.get("button_mappings", {}).get("right_click", "reject")
-        right_var.set(current_right.capitalize())
-
-        right_menu = tk.OptionMenu(frame, right_var, *action_options)
-        right_menu.config(width=12)
-        right_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
-
-        self.widgets["right_click"] = right_var
-
-    def _build_wheel_mappings_section(self, parent_frame):
-        """Build wheel mapping controls."""
-        # Create LabelFrame for wheel mappings
-        frame = tk.LabelFrame(parent_frame, text="Mouse Wheel Mappings", padx=10, pady=10)
-        frame.pack(fill="x", padx=10, pady=5)
-
-        # Action options for dropdowns
-        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Disabled"]
-
-        # Wheel Up mapping
-        tk.Label(frame, text="Wheel Up:", anchor="w").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-
-        wheel_up_var = tk.StringVar(self.dialog)
-        current_wheel_up = self.temp_config.get("wheel_mappings", {}).get("wheel_up", "previous")
-        wheel_up_var.set(current_wheel_up.capitalize())
-
-        wheel_up_menu = tk.OptionMenu(frame, wheel_up_var, *action_options)
-        wheel_up_menu.config(width=12)
-        wheel_up_menu.grid(row=0, column=1, sticky="w", padx=5, pady=5)
-
-        self.widgets["wheel_up"] = wheel_up_var
-
-        # Wheel Down mapping
-        tk.Label(frame, text="Wheel Down:", anchor="w").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-
-        wheel_down_var = tk.StringVar(self.dialog)
-        current_wheel_down = self.temp_config.get("wheel_mappings", {}).get("wheel_down", "next")
-        wheel_down_var.set(current_wheel_down.capitalize())
-
-        wheel_down_menu = tk.OptionMenu(frame, wheel_down_var, *action_options)
-        wheel_down_menu.config(width=12)
-        wheel_down_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
-
-        self.widgets["wheel_down"] = wheel_down_var
-
-    def _build_key_mappings_section(self, parent_frame):
-        """Build key mapping controls with dynamic rows: [key capture] [action dropdown] [remove]."""
-        frame = tk.LabelFrame(parent_frame, text="Keyboard Mappings", padx=10, pady=10)
-        frame.pack(fill="x", padx=10, pady=5)
-
-        self.key_mappings_frame = frame
-        self.key_mapping_rows = []
-
-        # Action options for dropdown (display name -> config value)
+        # Shared action display/value maps
         self.key_action_options = [
             "Keep", "Reject", "Next", "Previous", "Skip", "Random",
             "Zoom In", "Zoom Out", "Fit to Page", "Disabled"
@@ -568,79 +514,140 @@ class SettingsDialog:
         }
         self.key_action_value_to_display = {v: k for k, v in self.key_action_display_to_value.items()}
 
-        # Load current key mappings
-        current_keys = self.temp_config.get("key_mappings", copy.deepcopy(ConfigManager.DEFAULT_CONFIG["key_mappings"]))
+    def _get_mode_settings(self, mode):
+        """Get the settings dict for a given mode from temp_config."""
+        return self.temp_config.get(f"{mode}_settings", {})
 
-        for key_name, action_name in current_keys.items():
-            self._add_key_mapping_row(key_name, action_name)
+    def _build_mode_tab(self, parent, mode):
+        """Build button/wheel/key sections + per-tab reset button."""
+        self._build_button_mappings_section(parent, mode)
+        self._build_wheel_mappings_section(parent, mode)
+        self._build_key_mappings_section(parent, mode)
 
-        # Add button
-        self.key_add_btn = tk.Button(frame, text="+ Add Key Binding", command=self._add_empty_key_mapping_row)
-        self.key_add_btn.grid(row=100, column=0, columnspan=4, pady=(5, 0))
+        # Per-tab reset button
+        reset_frame = tk.Frame(parent)
+        reset_frame.pack(fill="x", padx=10, pady=(5, 10))
+        label = "Sort / Cull" if mode == "sort" else "View Only"
+        tk.Button(
+            reset_frame, text=f"Reset {label} Defaults",
+            bg="#6c757d", fg="white",
+            command=lambda m=mode: self._reset_tab_to_defaults(m)
+        ).pack(side="left")
 
-    def _add_key_mapping_row(self, key_name="", action_name="disabled"):
-        """Add a single key mapping row to the UI."""
-        frame = self.key_mappings_frame
-        row_idx = len(self.key_mapping_rows)
+    def _build_button_mappings_section(self, parent_frame, mode):
+        """Build button mapping controls for a mode."""
+        frame = tk.LabelFrame(parent_frame, text="Button Mappings", padx=10, pady=10)
+        frame.pack(fill="x", padx=10, pady=5)
+        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Disabled"]
+        settings = self._get_mode_settings(mode)
 
-        # Key name entry (readonly, set via capture)
+        tk.Label(frame, text="Left Click:", anchor="w").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        left_var = tk.StringVar(self.dialog)
+        left_var.set(settings.get("button_mappings", {}).get("left_click", "keep").capitalize())
+        left_menu = tk.OptionMenu(frame, left_var, *action_options)
+        left_menu.config(width=12)
+        left_menu.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        self.mode_widgets[mode]["left_click"] = left_var
+
+        tk.Label(frame, text="Right Click:", anchor="w").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        right_var = tk.StringVar(self.dialog)
+        right_var.set(settings.get("button_mappings", {}).get("right_click", "reject").capitalize())
+        right_menu = tk.OptionMenu(frame, right_var, *action_options)
+        right_menu.config(width=12)
+        right_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        self.mode_widgets[mode]["right_click"] = right_var
+
+    def _build_wheel_mappings_section(self, parent_frame, mode):
+        """Build wheel mapping controls for a mode."""
+        frame = tk.LabelFrame(parent_frame, text="Mouse Wheel Mappings", padx=10, pady=10)
+        frame.pack(fill="x", padx=10, pady=5)
+        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Disabled"]
+        settings = self._get_mode_settings(mode)
+
+        tk.Label(frame, text="Wheel Up:", anchor="w").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        up_var = tk.StringVar(self.dialog)
+        up_var.set(settings.get("wheel_mappings", {}).get("wheel_up", "previous").capitalize())
+        up_menu = tk.OptionMenu(frame, up_var, *action_options)
+        up_menu.config(width=12)
+        up_menu.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        self.mode_widgets[mode]["wheel_up"] = up_var
+
+        tk.Label(frame, text="Wheel Down:", anchor="w").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        down_var = tk.StringVar(self.dialog)
+        down_var.set(settings.get("wheel_mappings", {}).get("wheel_down", "next").capitalize())
+        down_menu = tk.OptionMenu(frame, down_var, *action_options)
+        down_menu.config(width=12)
+        down_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+        self.mode_widgets[mode]["wheel_down"] = down_var
+
+    def _build_key_mappings_section(self, parent_frame, mode):
+        """Build keyboard mapping controls for a mode."""
+        frame = tk.LabelFrame(parent_frame, text="Keyboard Mappings", padx=10, pady=10)
+        frame.pack(fill="x", padx=10, pady=5)
+        self.key_mappings_frames[mode] = frame
+
+        settings = self._get_mode_settings(mode)
+        for key_name, action_name in settings.get("key_mappings", {}).items():
+            self._add_key_mapping_row(mode, key_name, action_name)
+
+        add_btn = tk.Button(frame, text="+ Add Key Binding",
+                            command=lambda m=mode: self._add_empty_key_mapping_row(m))
+        add_btn.grid(row=100, column=0, columnspan=5, pady=(5, 0))
+        self.key_add_btns[mode] = add_btn
+
+    def _add_key_mapping_row(self, mode, key_name="", action_name="disabled"):
+        """Add a single key mapping row for a given mode."""
+        frame = self.key_mappings_frames[mode]
+        row_idx = len(self.key_mapping_rows[mode])
+
         key_var = tk.StringVar(self.dialog, value=key_name)
         entry = tk.Entry(frame, textvariable=key_var, width=12, justify="center", state="readonly")
         entry.grid(row=row_idx, column=0, sticky="w", padx=(5, 2), pady=3)
 
-        # Set button for key capture
-        set_btn = tk.Button(
-            frame, text="Set",
-            command=lambda e=entry, v=key_var: self._capture_key(e, v)
-        )
+        set_btn = tk.Button(frame, text="Set",
+                            command=lambda e=entry, v=key_var: self._capture_key(e, v))
         set_btn.grid(row=row_idx, column=1, padx=2, pady=3)
 
-        # Action label
         action_label = tk.Label(frame, text="Action:")
         action_label.grid(row=row_idx, column=2, padx=(5, 2), pady=3)
 
-        # Action dropdown
         action_display = self.key_action_value_to_display.get(action_name, "Disabled")
         action_var = tk.StringVar(self.dialog, value=action_display)
         action_menu = tk.OptionMenu(frame, action_var, *self.key_action_options)
         action_menu.config(width=10)
         action_menu.grid(row=row_idx, column=3, padx=2, pady=3)
 
-        # Remove button
         remove_btn = tk.Button(frame, text="\u2715", width=2)
         row_data = {"key_var": key_var, "action_var": action_var,
                     "widgets": [entry, set_btn, action_label, action_menu, remove_btn]}
-        remove_btn.config(command=lambda rd=row_data: self._remove_key_mapping_row(rd))
+        remove_btn.config(command=lambda rd=row_data, m=mode: self._remove_key_mapping_row(m, rd))
         remove_btn.grid(row=row_idx, column=4, padx=2, pady=3)
 
-        self.key_mapping_rows.append(row_data)
+        self.key_mapping_rows[mode].append(row_data)
 
-    def _add_empty_key_mapping_row(self):
+    def _add_empty_key_mapping_row(self, mode):
         """Add an empty key mapping row and prompt for key capture."""
-        self._add_key_mapping_row("", "disabled")
-        # Auto-trigger key capture for the new row
-        new_row = self.key_mapping_rows[-1]
-        entry_widget = new_row["widgets"][0]
-        self._capture_key(entry_widget, new_row["key_var"])
+        self._add_key_mapping_row(mode, "", "disabled")
+        new_row = self.key_mapping_rows[mode][-1]
+        self._capture_key(new_row["widgets"][0], new_row["key_var"])
 
-    def _remove_key_mapping_row(self, row_data):
+    def _remove_key_mapping_row(self, mode, row_data):
         """Remove a key mapping row from the UI."""
-        if row_data in self.key_mapping_rows:
-            self.key_mapping_rows.remove(row_data)
+        if row_data in self.key_mapping_rows[mode]:
+            self.key_mapping_rows[mode].remove(row_data)
             for w in row_data["widgets"]:
                 w.destroy()
-            # Re-layout remaining rows
-            self._relayout_key_mapping_rows()
+            self._relayout_key_mapping_rows(mode)
 
-    def _relayout_key_mapping_rows(self):
+    def _relayout_key_mapping_rows(self, mode):
         """Re-grid all key mapping rows after a removal."""
-        for idx, row_data in enumerate(self.key_mapping_rows):
-            widgets = row_data["widgets"]  # [entry, set_btn, action_label, action_menu, remove_btn]
-            widgets[0].grid(row=idx, column=0, sticky="w", padx=(5, 2), pady=3)
-            widgets[1].grid(row=idx, column=1, padx=2, pady=3)
-            widgets[2].grid(row=idx, column=2, padx=(5, 2), pady=3)
-            widgets[3].grid(row=idx, column=3, padx=2, pady=3)
-            widgets[4].grid(row=idx, column=4, padx=2, pady=3)
+        for idx, row_data in enumerate(self.key_mapping_rows[mode]):
+            ws = row_data["widgets"]
+            ws[0].grid(row=idx, column=0, sticky="w", padx=(5, 2), pady=3)
+            ws[1].grid(row=idx, column=1, padx=2, pady=3)
+            ws[2].grid(row=idx, column=2, padx=(5, 2), pady=3)
+            ws[3].grid(row=idx, column=3, padx=2, pady=3)
+            ws[4].grid(row=idx, column=4, padx=2, pady=3)
 
     def _capture_key(self, entry, var):
         """Capture a key press and set it as the binding."""
@@ -650,141 +657,110 @@ class SettingsDialog:
         entry.config(state="readonly")
 
         def on_key(event):
-            # Convert keysym to our config format
             key_name = event.keysym
             var.set(key_name)
             entry.config(state="normal")
             entry.delete(0, tk.END)
             entry.insert(0, key_name)
             entry.config(state="readonly")
-            # Unbind after capture
             self.dialog.unbind("<Key>")
 
         self.dialog.bind("<Key>", on_key)
         self.dialog.focus_set()
 
     def _build_options_section(self, parent_frame):
-        """Build options controls."""
-        # Create LabelFrame for options
+        """Build shared loading options."""
         frame = tk.LabelFrame(parent_frame, text="Loading Options", padx=10, pady=10)
         frame.pack(fill="x", padx=10, pady=5)
 
-        # Recursive loading checkbox
         recursive_var = tk.BooleanVar(self.dialog)
-        current_recursive = self.temp_config.get("options", {}).get("recursive_loading", False)
-        recursive_var.set(current_recursive)
-
-        recursive_check = tk.Checkbutton(
-            frame,
-            text="Load images from subdirectories recursively",
-            variable=recursive_var
-        )
-        recursive_check.pack(anchor="w", padx=5, pady=5)
-
-        self.widgets["recursive_loading"] = recursive_var
+        recursive_var.set(self.temp_config.get("options", {}).get("recursive_loading", False))
+        tk.Checkbutton(frame, text="Load images from subdirectories recursively",
+                       variable=recursive_var).pack(anchor="w", padx=5, pady=5)
+        self.mode_widgets["_shared"] = {"recursive_loading": recursive_var}
 
     def _build_button_bar(self, parent_frame):
-        """Build dialog button bar."""
-        # Create Frame for buttons at bottom
+        """Build dialog button bar (Cancel + Save)."""
         frame = tk.Frame(parent_frame, padx=10, pady=10)
         frame.pack(fill="x", side="bottom")
 
-        # Reset Defaults button (left side)
-        reset_btn = tk.Button(
-            frame,
-            text="Reset Defaults",
-            bg="#6c757d",
-            fg="white",
-            command=self._reset_to_defaults
-        )
-        reset_btn.pack(side="left", padx=5)
-
-        # Cancel button (right side)
-        cancel_btn = tk.Button(
-            frame,
-            text="Cancel",
-            bg="#6c757d",
-            fg="white",
-            command=self._cancel
-        )
-        cancel_btn.pack(side="right", padx=5)
-
-        # Save button (right side)
-        save_btn = tk.Button(
-            frame,
-            text="Save",
-            bg="#28a745",
-            fg="white",
-            font=("Arial", 10, "bold"),
-            command=self._validate_and_save
-        )
-        save_btn.pack(side="right", padx=5)
+        tk.Button(frame, text="Cancel", bg="#6c757d", fg="white",
+                  command=self._cancel).pack(side="right", padx=5)
+        tk.Button(frame, text="Save", bg="#28a745", fg="white",
+                  font=("Arial", 10, "bold"),
+                  command=self._validate_and_save).pack(side="right", padx=5)
 
     def show(self):
         """Display modal settings dialog."""
-        # Create modal Toplevel window
+        import tkinter.ttk as ttk
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Settings")
-        self.dialog.geometry("550x600")
-        self.dialog.transient(self.parent)  # Set parent window
-        self.dialog.grab_set()  # Make modal
+        self.dialog.geometry("570x660")
+        self.dialog.transient(self.parent)
+        self.dialog.grab_set()
 
-        # Initialize temp_config as deep copy of current config
         self.temp_config = copy.deepcopy(self.config_manager.config)
 
-        # Build button bar first (packs at bottom)
+        # Button bar at bottom
         self._build_button_bar(self.dialog)
 
-        # Build UI sections (pack from top)
-        self._build_button_mappings_section(self.dialog)
-        self._build_wheel_mappings_section(self.dialog)
-        self._build_key_mappings_section(self.dialog)
+        # Shared loading options
         self._build_options_section(self.dialog)
 
-        # Make dialog modal - wait for window to close
+        # Tabbed notebook for mode-specific settings
+        self.notebook = ttk.Notebook(self.dialog)
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=5)
+
+        for mode, label in [("sort", "  Sort / Cull  "), ("view", "  View Only  ")]:
+            tab = tk.Frame(self.notebook)
+            self.notebook.add(tab, text=label)
+            self._build_mode_tab(tab, mode)
+
+        # Open to the tab matching current mode
+        self.notebook.select(0 if self.app_mode == "sort" else 1)
+
         self.dialog.wait_window()
 
-    def _validate_and_save(self):
-        """Validate temp_config and save if valid."""
-        # Read values from all widgets and update temp_config
-        self.temp_config["button_mappings"]["left_click"] = self.widgets["left_click"].get().lower()
-        self.temp_config["button_mappings"]["right_click"] = self.widgets["right_click"].get().lower()
-        self.temp_config["wheel_mappings"]["wheel_up"] = self.widgets["wheel_up"].get().lower()
-        self.temp_config["wheel_mappings"]["wheel_down"] = self.widgets["wheel_down"].get().lower()
-        self.temp_config["options"]["recursive_loading"] = self.widgets["recursive_loading"].get()
-
-        # Read key mappings from dynamic rows
-        new_key_mappings = {}
-        for row_data in self.key_mapping_rows:
+    def _collect_mode_settings(self, mode):
+        """Read widget values for a mode and return a settings dict."""
+        w = self.mode_widgets[mode]
+        key_mappings = {}
+        for row_data in self.key_mapping_rows[mode]:
             key_name = row_data["key_var"].get().strip()
-            action_display = row_data["action_var"].get()
-            action_value = self.key_action_display_to_value.get(action_display, "disabled")
-            if key_name:  # Skip rows with empty key
-                new_key_mappings[key_name] = action_value
-        self.temp_config["key_mappings"] = new_key_mappings
+            action_value = self.key_action_display_to_value.get(row_data["action_var"].get(), "disabled")
+            if key_name:
+                key_mappings[key_name] = action_value
+        return {
+            "button_mappings": {
+                "left_click": w["left_click"].get().lower(),
+                "right_click": w["right_click"].get().lower(),
+            },
+            "wheel_mappings": {
+                "wheel_up": w["wheel_up"].get().lower(),
+                "wheel_down": w["wheel_down"].get().lower(),
+            },
+            "key_mappings": key_mappings
+        }
 
-        # Validate configuration
+    def _validate_and_save(self):
+        """Collect settings from both tabs, validate, and save."""
+        self.temp_config["sort_settings"] = self._collect_mode_settings("sort")
+        self.temp_config["view_settings"] = self._collect_mode_settings("view")
+        self.temp_config["options"]["recursive_loading"] = \
+            self.mode_widgets["_shared"]["recursive_loading"].get()
+
         is_valid, error_msg = self.config_manager.validate(self.temp_config)
         if not is_valid:
             messagebox.showerror("Invalid Settings", error_msg)
             return
 
-        # Check for warnings (non-blocking)
         warnings = self._check_warnings(self.temp_config)
         if warnings:
-            proceed = messagebox.askyesno(
-                "Configuration Warning",
-                f"{warnings}\n\nProceed anyway?"
-            )
-            if not proceed:
+            if not messagebox.askyesno("Configuration Warning", f"{warnings}\n\nProceed anyway?"):
                 return
 
-        # Save configuration
         if self.config_manager.save(self.temp_config):
-            # Apply changes immediately
             self.parent.apply_config(self.temp_config)
-
-            # Close dialog
             self.dialog.destroy()
         else:
             messagebox.showerror("Save Failed", "Could not save settings. Check console for errors.")
@@ -792,21 +768,19 @@ class SettingsDialog:
     def _check_warnings(self, config):
         """Return warning messages for potentially problematic configs."""
         warnings = []
+        sort_s = config.get("sort_settings", {})
+        sort_actions = (
+            list(sort_s.get("button_mappings", {}).values()) +
+            list(sort_s.get("wheel_mappings", {}).values()) +
+            list(sort_s.get("key_mappings", {}).values())
+        )
+        if "keep" not in sort_actions and "reject" not in sort_actions:
+            warnings.append("Sort/Cull tab: no inputs mapped to Keep or Reject.\nYou won't be able to sort images!")
 
-        # Check if no inputs are mapped to keep/reject
-        button_actions = list(config["button_mappings"].values())
-        wheel_actions = list(config["wheel_mappings"].values())
-        key_actions = list(config.get("key_mappings", {}).values())
-        all_actions = button_actions + wheel_actions + key_actions
-
-        if self.app_mode == "sort" and "keep" not in all_actions and "reject" not in all_actions:
-            warnings.append("No buttons, wheel, or keys mapped to Keep or Reject.\nYou won't be able to sort images!")
-
-        # Check for duplicate keys in key mappings
-        key_mappings = config.get("key_mappings", {})
-        keys = list(key_mappings.keys())
-        if len(keys) != len(set(keys)):
-            warnings.append("Duplicate keys detected in keyboard mappings.")
+        for mode in ("sort", "view"):
+            keys = list(config.get(f"{mode}_settings", {}).get("key_mappings", {}).keys())
+            if len(keys) != len(set(keys)):
+                warnings.append(f"Duplicate keys in {mode} keyboard mappings.")
 
         return "\n".join(warnings) if warnings else None
 
@@ -814,32 +788,27 @@ class SettingsDialog:
         """Close dialog without saving."""
         self.dialog.destroy()
 
-    def _reset_to_defaults(self):
-        """Reset all settings to default values."""
-        # Load defaults from ConfigManager
-        defaults = copy.deepcopy(ConfigManager.DEFAULT_CONFIG)
+    def _reset_tab_to_defaults(self, mode):
+        """Reset the given mode tab to its factory defaults."""
+        defaults = copy.deepcopy(
+            ConfigManager.DEFAULT_SORT_SETTINGS if mode == "sort" else ConfigManager.DEFAULT_VIEW_SETTINGS
+        )
+        w = self.mode_widgets[mode]
+        w["left_click"].set(defaults["button_mappings"]["left_click"].capitalize())
+        w["right_click"].set(defaults["button_mappings"]["right_click"].capitalize())
+        w["wheel_up"].set(defaults["wheel_mappings"]["wheel_up"].capitalize())
+        w["wheel_down"].set(defaults["wheel_mappings"]["wheel_down"].capitalize())
 
-        # Update temp_config
-        self.temp_config = defaults
-
-        # Update all widgets to show default values
-        self.widgets["left_click"].set(defaults["button_mappings"]["left_click"].capitalize())
-        self.widgets["right_click"].set(defaults["button_mappings"]["right_click"].capitalize())
-        self.widgets["wheel_up"].set(defaults["wheel_mappings"]["wheel_up"].capitalize())
-        self.widgets["wheel_down"].set(defaults["wheel_mappings"]["wheel_down"].capitalize())
-        self.widgets["recursive_loading"].set(defaults["options"]["recursive_loading"])
-
-        # Reset key mappings - rebuild the rows
-        for row_data in self.key_mapping_rows[:]:
-            for w in row_data["widgets"]:
-                w.destroy()
-        self.key_mapping_rows.clear()
-        # Also destroy any "Action:" labels left in the grid
-        for widget in self.key_mappings_frame.winfo_children():
-            if widget != self.key_add_btn:
+        # Rebuild key rows for this tab
+        for row_data in self.key_mapping_rows[mode][:]:
+            for widget in row_data["widgets"]:
+                widget.destroy()
+        self.key_mapping_rows[mode].clear()
+        for widget in self.key_mappings_frames[mode].winfo_children():
+            if widget != self.key_add_btns[mode]:
                 widget.destroy()
         for key_name, action_name in defaults["key_mappings"].items():
-            self._add_key_mapping_row(key_name, action_name)
+            self._add_key_mapping_row(mode, key_name, action_name)
 
 class RapidCullerApp:
     def __init__(self, root):
@@ -996,6 +965,9 @@ class RapidCullerApp:
         self.app_mode = mode
         self._apply_mode_ui()
         self.save_settings()
+        # Rebind events and update instruction bar for the new mode
+        self.action_mapper.bind_all(self.config_manager.config)
+        self._update_instructions_label(self.config_manager.config)
         # Reset session state if switching modes
         if self.image_files:
             result = tk.messagebox.askyesno(
@@ -1042,15 +1014,15 @@ class RapidCullerApp:
             self.btn_mode_view.config(bg="#17a2b8", fg="white", font=("Arial", 9, "bold"))
 
     def _update_instructions_label(self, config):
-        """Update instruction label to show current button/wheel/key mappings."""
-        # Get current mappings
-        left = config.get("button_mappings", {}).get("left_click", "keep").upper()
-        right = config.get("button_mappings", {}).get("right_click", "reject").upper()
-        wheel_up = config.get("wheel_mappings", {}).get("wheel_up", "previous").upper()
-        wheel_down = config.get("wheel_mappings", {}).get("wheel_down", "next").upper()
+        """Update instruction label to show current mode's button/wheel/key mappings."""
+        # Use mode-specific settings block; fall back to flat config for old formats
+        settings = config.get(f"{self.app_mode}_settings", config)
+        left = settings.get("button_mappings", {}).get("left_click", "keep").upper()
+        right = settings.get("button_mappings", {}).get("right_click", "reject").upper()
+        wheel_up = settings.get("wheel_mappings", {}).get("wheel_up", "previous").upper()
+        wheel_down = settings.get("wheel_mappings", {}).get("wheel_down", "next").upper()
 
-        # Build key mapping display from new {key: action} format
-        key_mappings = config.get("key_mappings", {})
+        key_mappings = settings.get("key_mappings", {})
         key_parts = []
         for key_name, action_name in key_mappings.items():
             if action_name != "disabled":
