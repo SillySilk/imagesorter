@@ -14,6 +14,7 @@ class ConfigManager:
     DEFAULT_CONFIG = {
         "src": "",
         "keep": "",
+        "app_mode": "sort",
         "button_mappings": {
             "left_click": "keep",
             "right_click": "reject"
@@ -131,6 +132,11 @@ class ConfigManager:
 
         if not isinstance(config["options"]["recursive_loading"], bool):
             return False, "recursive_loading must be a boolean"
+
+        # Validate app_mode (optional field)
+        if "app_mode" in config:
+            if config["app_mode"] not in ("sort", "view"):
+                return False, "app_mode must be 'sort' or 'view'"
 
         # Validate key_mappings (optional for older configs, will be migrated)
         if "key_mappings" in config:
@@ -366,6 +372,13 @@ class ActionMapper:
     def _create_combined_wheel_handler(self, up_handler, down_handler):
         """Create combined wheel handler for Windows/MacOS that handles both directions."""
         def wheel_handler(event):
+            # Ctrl+Wheel always zooms, regardless of configured mappings
+            if event.state & 0x0004:  # Ctrl key held
+                if event.delta > 0:
+                    self.app.zoom_in(event)
+                elif event.delta < 0:
+                    self.app.zoom_out(event)
+                return
             # On Windows/MacOS, event.delta indicates scroll direction
             # Positive delta = scroll up, Negative delta = scroll down
             if event.delta > 0 and up_handler:
@@ -377,7 +390,7 @@ class ActionMapper:
 class RecursiveScanner:
     """Scans directory tree for images, maintaining structure information."""
 
-    VALID_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
+    VALID_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.psd')
 
     @staticmethod
     def scan(root_dir, recursive=False):
@@ -455,10 +468,11 @@ class RecursiveScanner:
 class SettingsDialog:
     """Modal dialog for configuring application settings."""
 
-    def __init__(self, parent, config_manager):
+    def __init__(self, parent, config_manager, app_mode="sort"):
         """Initialize SettingsDialog with parent window and config manager."""
         self.parent = parent
         self.config_manager = config_manager
+        self.app_mode = app_mode
         self.dialog = None
         self.temp_config = {}
         self.widgets = {}
@@ -785,7 +799,7 @@ class SettingsDialog:
         key_actions = list(config.get("key_mappings", {}).values())
         all_actions = button_actions + wheel_actions + key_actions
 
-        if "keep" not in all_actions and "reject" not in all_actions:
+        if self.app_mode == "sort" and "keep" not in all_actions and "reject" not in all_actions:
             warnings.append("No buttons, wheel, or keys mapped to Keep or Reject.\nYou won't be able to sort images!")
 
         # Check for duplicate keys in key mappings
@@ -843,6 +857,7 @@ class RapidCullerApp:
         self.image_files = []
         self.current_index = 0
         self.photo_image = None # Keep reference to avoid garbage collection
+        self.app_mode = "sort"  # "sort" or "view"
 
         # Zoom and pan state
         self.zoom_level = 1.0
@@ -856,30 +871,47 @@ class RapidCullerApp:
         self.current_pil_image = None  # Cache the full-size PIL image
 
         # --- GUI Layout ---
-        
+
         # Top Control Panel
         control_frame = tk.Frame(root, padx=10, pady=10, bg="#e1e1e1")
         control_frame.pack(fill="x")
 
+        # Mode Toggle (top row)
+        mode_frame = tk.Frame(control_frame, bg="#e1e1e1")
+        mode_frame.grid(row=0, column=0, columnspan=3, sticky="we", padx=5, pady=(2, 4))
+        tk.Label(mode_frame, text="MODE:", bg="#e1e1e1", font=("Arial", 9, "bold")).pack(side="left")
+        self.btn_mode_sort = tk.Button(
+            mode_frame, text="Sort / Cull", font=("Arial", 9, "bold"),
+            bg="#007bff", fg="white",
+            command=lambda: self.set_mode("sort"), takefocus=False
+        )
+        self.btn_mode_sort.pack(side="left", padx=(5, 2))
+        self.btn_mode_view = tk.Button(
+            mode_frame, text="View Only", font=("Arial", 9),
+            bg="#d9d9d9", fg="#333",
+            command=lambda: self.set_mode("view"), takefocus=False
+        )
+        self.btn_mode_view.pack(side="left", padx=2)
+
         # Source Button and Label
         btn_src = tk.Button(control_frame, text="1. Select SOURCE Folder", bg="#d9d9d9", command=self.select_src, takefocus=False)
-        btn_src.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        btn_src.grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.lbl_src = tk.Label(control_frame, text="No folder selected", bg="#e1e1e1", anchor="w")
-        self.lbl_src.grid(row=0, column=1, sticky="we", padx=5)
+        self.lbl_src.grid(row=1, column=1, sticky="we", padx=5)
 
-        # Keep Button and Label
-        btn_keep = tk.Button(control_frame, text="2. Select KEEP Destination", bg="#d9d9d9", command=self.select_keep, takefocus=False)
-        btn_keep.grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        # Keep Button and Label (hidden in View mode)
+        self.btn_keep = tk.Button(control_frame, text="2. Select KEEP Destination", bg="#d9d9d9", command=self.select_keep, takefocus=False)
+        self.btn_keep.grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.lbl_keep = tk.Label(control_frame, text="No folder selected", bg="#e1e1e1", anchor="w")
-        self.lbl_keep.grid(row=1, column=1, sticky="we", padx=5)
+        self.lbl_keep.grid(row=2, column=1, sticky="we", padx=5)
 
         # Load Button
         self.btn_load = tk.Button(control_frame, text="3. START CULLING", bg="#28a745", fg="white", font=("Arial", 11, "bold"), state="disabled", command=self.load_images_start, takefocus=False)
-        self.btn_load.grid(row=2, column=0, columnspan=2, sticky="we", padx=5, pady=(10,5))
+        self.btn_load.grid(row=3, column=0, columnspan=2, sticky="we", padx=5, pady=(10,5))
 
         # Settings Button
         btn_settings = tk.Button(control_frame, text="⚙ Settings", bg="#6c757d", fg="white", command=self.open_settings, takefocus=False)
-        btn_settings.grid(row=2, column=2, sticky="e", padx=5, pady=(10,5))
+        btn_settings.grid(row=3, column=2, sticky="e", padx=5, pady=(10,5))
 
         control_frame.columnconfigure(1, weight=1)
 
@@ -919,12 +951,10 @@ class RapidCullerApp:
         self.apply_config(config)
 
     def save_settings(self):
-        """Saves current paths to JSON file."""
-        # Update config with current paths
+        """Saves current paths and mode to JSON file."""
         self.config_manager.set("src", self.src_dir)
         self.config_manager.set("keep", self.keep_dir)
-
-        # Save through ConfigManager
+        self.config_manager.set("app_mode", self.app_mode)
         self.config_manager.save(self.config_manager.config)
 
     def apply_config(self, config):
@@ -944,6 +974,12 @@ class RapidCullerApp:
             self.keep_dir = keep
             self.lbl_keep.config(text=keep)
 
+        # Apply mode if saved in config
+        saved_mode = config.get("app_mode", "sort")
+        if saved_mode in ("sort", "view") and saved_mode != self.app_mode:
+            self.app_mode = saved_mode
+            self._apply_mode_ui()
+
         # Apply button and wheel mappings through ActionMapper
         self.action_mapper.bind_all(config)
 
@@ -952,6 +988,58 @@ class RapidCullerApp:
 
         # Update ready state
         self.check_ready()
+
+    def set_mode(self, mode):
+        """Switch between 'sort' and 'view' modes."""
+        if mode == self.app_mode:
+            return
+        self.app_mode = mode
+        self._apply_mode_ui()
+        self.save_settings()
+        # Reset session state if switching modes
+        if self.image_files:
+            result = tk.messagebox.askyesno(
+                "Switch Mode",
+                f"Switch to {mode.title()} mode? This will restart the current image session."
+            )
+            if result:
+                self.image_files = []
+                self.current_index = 0
+                self.current_pil_image = None
+                self.photo_image = None
+                self.image_label.config(image="", text="Load a folder to begin", fg="#888888")
+                self.lbl_status.config(text="Waiting to start...")
+                self.btn_load.config(state="disabled")
+                self.check_ready()
+            else:
+                # Revert mode change
+                self.app_mode = "sort" if mode == "view" else "view"
+                self._apply_mode_ui()
+
+    def _is_ready(self):
+        """Check if the app has everything needed to start."""
+        if self.app_mode == "view":
+            return bool(self.src_dir)
+        return bool(self.src_dir and self.keep_dir)
+
+    def _apply_mode_ui(self):
+        """Update UI elements to reflect the current mode."""
+        if self.app_mode == "sort":
+            # Sort mode: show keep destination row, update button text
+            self.btn_keep.grid()
+            self.lbl_keep.grid()
+            self.btn_load.config(text="3. START CULLING")
+            # Update mode toggle button appearances
+            self.btn_mode_sort.config(bg="#007bff", fg="white", font=("Arial", 9, "bold"))
+            self.btn_mode_view.config(bg="#d9d9d9", fg="#333", font=("Arial", 9))
+        else:
+            # View mode: hide keep destination row, update button text
+            self.btn_keep.grid_remove()
+            self.lbl_keep.grid_remove()
+            self.btn_load.config(text="2. BROWSE IMAGES")
+            # Update mode toggle button appearances
+            self.btn_mode_sort.config(bg="#d9d9d9", fg="#333", font=("Arial", 9))
+            self.btn_mode_view.config(bg="#17a2b8", fg="white", font=("Arial", 9, "bold"))
 
     def _update_instructions_label(self, config):
         """Update instruction label to show current button/wheel/key mappings."""
@@ -1006,7 +1094,7 @@ class RapidCullerApp:
             self.check_ready()
 
     def check_ready(self):
-        if self.src_dir and self.keep_dir:
+        if self._is_ready():
             self.btn_load.config(state="normal")
 
     def auto_load_from_file(self, file_path):
@@ -1028,12 +1116,12 @@ class RapidCullerApp:
         self.src_dir = src_directory
         self.lbl_src.config(text=src_directory)
 
-        # Set keep directory to parent directory (user can change later)
-        # This provides a sensible default for "Open With" scenarios
-        parent_dir = os.path.dirname(src_directory)
-        if parent_dir and os.path.isdir(parent_dir):
-            self.keep_dir = parent_dir
-            self.lbl_keep.config(text=parent_dir)
+        # Set keep directory to parent directory (only needed in sort mode)
+        if self.app_mode == "sort":
+            parent_dir = os.path.dirname(src_directory)
+            if parent_dir and os.path.isdir(parent_dir):
+                self.keep_dir = parent_dir
+                self.lbl_keep.config(text=parent_dir)
 
         # Save settings
         self.save_settings()
@@ -1041,8 +1129,8 @@ class RapidCullerApp:
         # Check if ready (should be true now)
         self.check_ready()
 
-        # Auto-start culling
-        if self.src_dir and self.keep_dir:
+        # Auto-start
+        if self._is_ready():
             self.load_images_start()
 
             # Find and display the specific file that was clicked
@@ -1054,34 +1142,35 @@ class RapidCullerApp:
 
     def open_settings(self):
         """Open settings dialog."""
-        # Check if culling is in progress
+        # Check if a session is in progress
         if self.image_files and self.btn_load.cget("state") == "disabled":
-            # Culling is in progress - inform user changes apply next session
+            session_label = "Culling" if self.app_mode == "sort" else "Viewing"
             result = messagebox.askyesno(
-                "Culling In Progress",
-                "Culling is currently in progress.\nSettings changes will apply to the next session.\n\nOpen settings anyway?"
+                f"{session_label} In Progress",
+                f"{session_label} is currently in progress.\nSettings changes will apply to the next session.\n\nOpen settings anyway?"
             )
             if not result:
                 return
 
         # Create and show settings dialog
-        dialog = SettingsDialog(self.root, self.config_manager)
+        dialog = SettingsDialog(self.root, self.config_manager, app_mode=self.app_mode)
         dialog.show()
 
     # --- Core Logic ---
     def load_images_start(self):
-        # 1. Setup Reject Folder
-        self.reject_dir = os.path.join(self.src_dir, "_REJECTS")
-        if not os.path.exists(self.reject_dir):
-            os.makedirs(self.reject_dir)
+        if self.app_mode == "sort":
+            # Setup Reject Folder
+            self.reject_dir = os.path.join(self.src_dir, "_REJECTS")
+            if not os.path.exists(self.reject_dir):
+                os.makedirs(self.reject_dir)
 
-        # 2. Scan for images using RecursiveScanner
+        # Scan for images using RecursiveScanner
         try:
             recursive = self.config_manager.get("options.recursive_loading", False)
             self.image_files = RecursiveScanner.scan(self.src_dir, recursive)
         except FileNotFoundError:
-             messagebox.showerror("Error", "Source folder not found. Did you move it?")
-             return
+            messagebox.showerror("Error", "Source folder not found. Did you move it?")
+            return
 
         # Sort by full_path to maintain consistent order
         self.image_files.sort(key=lambda x: x["full_path"])
@@ -1092,8 +1181,12 @@ class RapidCullerApp:
 
         self.current_index = 0
         self.show_current_image()
-        # Disable controls once started so paths don't change mid-stream
-        self.btn_load.config(state="disabled", text="Culling in progress...")
+
+        # Disable load button while session is active
+        if self.app_mode == "sort":
+            self.btn_load.config(state="disabled", text="Culling in progress...")
+        else:
+            self.btn_load.config(state="disabled", text="Browsing images...")
 
         # Set focus to root so keyboard bindings (spacebar, zoom, etc.) work immediately
         self.root.focus_set()
@@ -1120,6 +1213,12 @@ class RapidCullerApp:
                 # Force load so file handle is released
                 self.current_pil_image.load()
 
+                # Ensure image is in a displayable mode (handles PSD CMYK, etc.)
+                if self.current_pil_image.mode == 'CMYK':
+                    self.current_pil_image = self.current_pil_image.convert('RGB')
+                elif self.current_pil_image.mode not in ('RGB', 'RGBA', 'L', 'P'):
+                    self.current_pil_image = self.current_pil_image.convert('RGB')
+
                 # Reset zoom and pan for new image
                 self.zoom_level = 1.0
                 self.pan_offset = [0, 0]
@@ -1129,7 +1228,10 @@ class RapidCullerApp:
             except Exception as e:
                 print(f"Error loading image {display_path}: {e}")
                 self.current_pil_image = None
-                self.action_reject(None) # Auto-reject corrupted images
+                if self.app_mode == "sort":
+                    self.action_reject(None)  # Auto-reject corrupted images in sort mode
+                else:
+                    self.action_next(None)  # Skip unreadable images in view mode
         else:
             self.finish_culling()
 
@@ -1231,25 +1333,39 @@ class RapidCullerApp:
             self.root.after(10, self.show_current_image)
 
     def action_keep(self, event):
-        # Left click handler
+        if self.app_mode == "view":
+            return  # No file operations in view mode
         if self.image_files:
             self.move_and_advance(self.keep_dir)
 
     def action_reject(self, event):
-        # Right click handler
+        if self.app_mode == "view":
+            return  # No file operations in view mode
         if self.image_files:
             self.move_and_advance(self.reject_dir)
 
     def action_next(self, event):
         """Navigate to next image without moving current."""
-        if self.image_files and self.current_index < len(self.image_files) - 1:
+        if not self.image_files:
+            return
+        if self.current_index < len(self.image_files) - 1:
             self.current_index += 1
+            self.show_current_image()
+        elif self.app_mode == "view":
+            # Wrap around in view mode
+            self.current_index = 0
             self.show_current_image()
 
     def action_previous(self, event):
         """Navigate to previous image."""
-        if self.image_files and self.current_index > 0:
+        if not self.image_files:
+            return
+        if self.current_index > 0:
             self.current_index -= 1
+            self.show_current_image()
+        elif self.app_mode == "view":
+            # Wrap around in view mode
+            self.current_index = len(self.image_files) - 1
             self.show_current_image()
 
     def action_skip(self, event):
@@ -1350,8 +1466,14 @@ class RapidCullerApp:
     def finish_culling(self):
         self.image_label.config(image="", text="--- NO MORE IMAGES ---", fg="white", font=("Arial", 24))
         self.lbl_status.config(text="Finished.")
-        messagebox.showinfo("Done", "All images have been sorted!")
-        self.root.quit()
+        if self.app_mode == "sort":
+            messagebox.showinfo("Done", "All images have been sorted!")
+            self.root.quit()
+        else:
+            messagebox.showinfo("Done", "Reached the end of the image list.")
+            # Re-enable load button so the user can reload
+            self.btn_load.config(state="normal", text="2. BROWSE IMAGES")
+            self.image_files = []
 
 if __name__ == "__main__":
     root = tk.Tk()
