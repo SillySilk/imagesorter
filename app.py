@@ -7,18 +7,19 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import copy
 import random
+import io
 
 class ConfigManager:
     """Manages application configuration with validation, migration, and persistence."""
 
     DEFAULT_SORT_SETTINGS = {
-        "button_mappings": {"left_click": "keep", "right_click": "reject"},
+        "button_mappings": {"left_click": "keep", "right_click": "reject", "middle_click": "disabled"},
         "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
         "key_mappings": {"space": "random", "Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page"}
     }
 
     DEFAULT_VIEW_SETTINGS = {
-        "button_mappings": {"left_click": "next", "right_click": "previous"},
+        "button_mappings": {"left_click": "next", "right_click": "previous", "middle_click": "random"},
         "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
         "key_mappings": {"Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page", "space": "random"}
     }
@@ -26,14 +27,14 @@ class ConfigManager:
     DEFAULT_CONFIG = {
         "src": "",
         "keep": "",
-        "app_mode": "sort",
+        "app_mode": "view",
         "sort_settings": {
-            "button_mappings": {"left_click": "keep", "right_click": "reject"},
+            "button_mappings": {"left_click": "keep", "right_click": "reject", "middle_click": "disabled"},
             "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
             "key_mappings": {"space": "random", "Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page"}
         },
         "view_settings": {
-            "button_mappings": {"left_click": "next", "right_click": "previous"},
+            "button_mappings": {"left_click": "next", "right_click": "previous", "middle_click": "random"},
             "wheel_mappings": {"wheel_up": "previous", "wheel_down": "next"},
             "key_mappings": {"Up": "zoom_in", "Down": "zoom_out", "f": "fit_to_page", "space": "random"}
         },
@@ -131,6 +132,9 @@ class ConfigManager:
                     return False, f"Missing {skey}.button_mappings.{k}"
                 if bm[k] not in self.VALID_ACTIONS:
                     return False, f"Invalid action '{bm[k]}' in {skey}.button_mappings.{k}"
+            # middle_click is optional
+            if "middle_click" in bm and bm["middle_click"] not in self.VALID_ACTIONS:
+                return False, f"Invalid action '{bm['middle_click']}' in {skey}.button_mappings.middle_click"
 
             wm = s.get("wheel_mappings", {})
             if not isinstance(wm, dict):
@@ -213,6 +217,16 @@ class ConfigManager:
         if "sort_settings" in old_config and "view_settings" not in old_config:
             old_config["view_settings"] = copy.deepcopy(self.DEFAULT_VIEW_SETTINGS)
             migrated = True
+
+        # v5 to v6 migration: add middle_click if missing
+        for mode in ("sort", "view"):
+            skey = f"{mode}_settings"
+            if skey in old_config:
+                bm = old_config[skey].get("button_mappings", {})
+                if "middle_click" not in bm:
+                    defaults = self.DEFAULT_SORT_SETTINGS if mode == "sort" else self.DEFAULT_VIEW_SETTINGS
+                    bm["middle_click"] = defaults["button_mappings"]["middle_click"]
+                    migrated = True
 
         if migrated:
             self.save(old_config)
@@ -322,6 +336,14 @@ class ActionMapper:
             if handler:
                 image_label.bind("<Button-3>", handler)
                 self.current_bindings["<Button-3>"] = right_action
+
+        # Middle click (Button-2)
+        middle_action = button_config.get("middle_click", "disabled")
+        if middle_action != "disabled":
+            handler = self._create_handler(middle_action)
+            if handler:
+                image_label.bind("<Button-2>", handler)
+                self.current_bindings["<Button-2>"] = middle_action
 
     def _bind_wheel(self, wheel_config):
         """Bind mouse wheel events."""
@@ -538,7 +560,7 @@ class SettingsDialog:
         """Build button mapping controls for a mode."""
         frame = tk.LabelFrame(parent_frame, text="Button Mappings", padx=10, pady=10)
         frame.pack(fill="x", padx=10, pady=5)
-        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Disabled"]
+        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Random", "Disabled"]
         settings = self._get_mode_settings(mode)
 
         tk.Label(frame, text="Left Click:", anchor="w").grid(row=0, column=0, sticky="w", padx=5, pady=5)
@@ -557,11 +579,19 @@ class SettingsDialog:
         right_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
         self.mode_widgets[mode]["right_click"] = right_var
 
+        tk.Label(frame, text="Middle Click:", anchor="w").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        middle_var = tk.StringVar(self.dialog)
+        middle_var.set(settings.get("button_mappings", {}).get("middle_click", "disabled").capitalize())
+        middle_menu = tk.OptionMenu(frame, middle_var, *action_options)
+        middle_menu.config(width=12)
+        middle_menu.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        self.mode_widgets[mode]["middle_click"] = middle_var
+
     def _build_wheel_mappings_section(self, parent_frame, mode):
         """Build wheel mapping controls for a mode."""
         frame = tk.LabelFrame(parent_frame, text="Mouse Wheel Mappings", padx=10, pady=10)
         frame.pack(fill="x", padx=10, pady=5)
-        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Disabled"]
+        action_options = ["Keep", "Reject", "Next", "Previous", "Skip", "Random", "Disabled"]
         settings = self._get_mode_settings(mode)
 
         tk.Label(frame, text="Wheel Up:", anchor="w").grid(row=0, column=0, sticky="w", padx=5, pady=5)
@@ -734,6 +764,7 @@ class SettingsDialog:
             "button_mappings": {
                 "left_click": w["left_click"].get().lower(),
                 "right_click": w["right_click"].get().lower(),
+                "middle_click": w["middle_click"].get().lower(),
             },
             "wheel_mappings": {
                 "wheel_up": w["wheel_up"].get().lower(),
@@ -796,6 +827,7 @@ class SettingsDialog:
         w = self.mode_widgets[mode]
         w["left_click"].set(defaults["button_mappings"]["left_click"].capitalize())
         w["right_click"].set(defaults["button_mappings"]["right_click"].capitalize())
+        w["middle_click"].set(defaults["button_mappings"]["middle_click"].capitalize())
         w["wheel_up"].set(defaults["wheel_mappings"]["wheel_up"].capitalize())
         w["wheel_down"].set(defaults["wheel_mappings"]["wheel_down"].capitalize())
 
@@ -826,7 +858,7 @@ class RapidCullerApp:
         self.image_files = []
         self.current_index = 0
         self.photo_image = None # Keep reference to avoid garbage collection
-        self.app_mode = "sort"  # "sort" or "view"
+        self.app_mode = "view"  # "sort" or "view"
 
         # Zoom and pan state
         self.zoom_level = 1.0
@@ -838,6 +870,9 @@ class RapidCullerApp:
         self.pan_start = None
         self.drag_distance = 0
         self.current_pil_image = None  # Cache the full-size PIL image
+        self.crop_mode = False  # Whether crop selection is active
+        self.crop_rect = None   # Canvas rectangle ID
+        self.crop_start = None  # (x, y) start of crop selection
 
         # --- GUI Layout ---
 
@@ -850,14 +885,14 @@ class RapidCullerApp:
         mode_frame.grid(row=0, column=0, columnspan=3, sticky="we", padx=5, pady=(2, 4))
         tk.Label(mode_frame, text="MODE:", bg="#e1e1e1", font=("Arial", 9, "bold")).pack(side="left")
         self.btn_mode_sort = tk.Button(
-            mode_frame, text="Sort / Cull", font=("Arial", 9, "bold"),
-            bg="#007bff", fg="white",
+            mode_frame, text="Sort / Cull", font=("Arial", 9),
+            bg="#d9d9d9", fg="#333",
             command=lambda: self.set_mode("sort"), takefocus=False
         )
         self.btn_mode_sort.pack(side="left", padx=(5, 2))
         self.btn_mode_view = tk.Button(
-            mode_frame, text="View Only", font=("Arial", 9),
-            bg="#d9d9d9", fg="#333",
+            mode_frame, text="View Only", font=("Arial", 9, "bold"),
+            bg="#17a2b8", fg="white",
             command=lambda: self.set_mode("view"), takefocus=False
         )
         self.btn_mode_view.pack(side="left", padx=2)
@@ -873,9 +908,12 @@ class RapidCullerApp:
         self.btn_keep.grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.lbl_keep = tk.Label(control_frame, text="No folder selected", bg="#e1e1e1", anchor="w")
         self.lbl_keep.grid(row=2, column=1, sticky="we", padx=5)
+        # Hide keep row by default since View mode is default
+        self.btn_keep.grid_remove()
+        self.lbl_keep.grid_remove()
 
         # Load Button
-        self.btn_load = tk.Button(control_frame, text="3. START CULLING", bg="#28a745", fg="white", font=("Arial", 11, "bold"), state="disabled", command=self.load_images_start, takefocus=False)
+        self.btn_load = tk.Button(control_frame, text="2. BROWSE IMAGES", bg="#28a745", fg="white", font=("Arial", 11, "bold"), state="disabled", command=self.load_images_start, takefocus=False)
         self.btn_load.grid(row=3, column=0, columnspan=2, sticky="we", padx=5, pady=(10,5))
 
         # Settings Button
@@ -905,6 +943,11 @@ class RapidCullerApp:
                   relief="raised", command=lambda: self.fit_to_page(None), takefocus=False).pack(side="left", padx=(2, 8))
         self.lbl_zoom_level = tk.Label(zoom_bar, text="Fit", bg="#dcdcdc", fg="#555", font=("Arial", 9))
         self.lbl_zoom_level.pack(side="left")
+        tk.Button(zoom_bar, text="Copy", font=("Arial", 9), bg="#d0d0d0",
+                  relief="raised", command=self.copy_to_clipboard, takefocus=False).pack(side="right", padx=2)
+        self.btn_crop_copy = tk.Button(zoom_bar, text="Crop+Copy", font=("Arial", 9), bg="#d0d0d0",
+                  relief="raised", command=self.start_crop_copy, takefocus=False)
+        self.btn_crop_copy.pack(side="right", padx=2)
 
         # Main Image Display Area
         self.image_frame = tk.Frame(root, bg="#333333")
@@ -919,6 +962,13 @@ class RapidCullerApp:
 
         # Initialize ActionMapper for dynamic event binding
         self.action_mapper = ActionMapper(self)
+
+        # Global keyboard shortcuts
+        self.root.bind("<Control-c>", lambda e: self.copy_to_clipboard())
+
+        # Re-render image on window resize
+        self.root.bind("<Configure>", self._on_window_resize)
+        self._resize_after_id = None
 
         # --- Load Settings on Startup ---
         self.load_settings()
@@ -971,35 +1021,28 @@ class RapidCullerApp:
         # Update ready state
         self.check_ready()
 
+        # If a session is active, re-render current image to pick up new bindings
+        if self.image_files and self.current_pil_image is not None:
+            self.show_current_image()
+
     def set_mode(self, mode):
-        """Switch between 'sort' and 'view' modes."""
+        """Switch between 'sort' and 'view' modes. Preserves current session and image."""
         if mode == self.app_mode:
             return
         self.app_mode = mode
         self._apply_mode_ui()
         self.save_settings()
+
+        # Setup reject folder if switching to sort mode with an active session
+        if mode == "sort" and self.src_dir:
+            self.reject_dir = os.path.join(self.src_dir, "_REJECTS")
+            if not os.path.exists(self.reject_dir):
+                os.makedirs(self.reject_dir)
+
         # Rebind events and update instruction bar for the new mode
         self.action_mapper.bind_all(self.config_manager.config)
         self._update_instructions_label(self.config_manager.config)
-        # Reset session state if switching modes
-        if self.image_files:
-            result = tk.messagebox.askyesno(
-                "Switch Mode",
-                f"Switch to {mode.title()} mode? This will restart the current image session."
-            )
-            if result:
-                self.image_files = []
-                self.current_index = 0
-                self.current_pil_image = None
-                self.photo_image = None
-                self.image_label.config(image="", text="Load a folder to begin", fg="#888888")
-                self.lbl_status.config(text="Waiting to start...")
-                self.btn_load.config(state="disabled")
-                self.check_ready()
-            else:
-                # Revert mode change
-                self.app_mode = "sort" if mode == "view" else "view"
-                self._apply_mode_ui()
+        self.check_ready()
 
     def _is_ready(self):
         """Check if the app has everything needed to start."""
@@ -1032,6 +1075,7 @@ class RapidCullerApp:
         settings = config.get(f"{self.app_mode}_settings", config)
         left = settings.get("button_mappings", {}).get("left_click", "keep").upper()
         right = settings.get("button_mappings", {}).get("right_click", "reject").upper()
+        middle = settings.get("button_mappings", {}).get("middle_click", "disabled").upper()
         wheel_up = settings.get("wheel_mappings", {}).get("wheel_up", "previous").upper()
         wheel_down = settings.get("wheel_mappings", {}).get("wheel_down", "next").upper()
 
@@ -1044,7 +1088,10 @@ class RapidCullerApp:
                 key_parts.append(f"{display_key}: {display_action}")
 
         # Build instruction text
-        instructions = f"L-Click: {left}  |  R-Click: {right}  |  Wheel: {wheel_up}/{wheel_down}"
+        instructions = f"L-Click: {left}  |  R-Click: {right}"
+        if middle != "DISABLED":
+            instructions += f"  |  M-Click: {middle}"
+        instructions += f"  |  Wheel: {wheel_up}/{wheel_down}"
         if key_parts:
             instructions += "  |  " + "  |  ".join(key_parts)
         self.lbl_instructions.config(text=instructions)
@@ -1126,18 +1173,7 @@ class RapidCullerApp:
                     break
 
     def open_settings(self):
-        """Open settings dialog."""
-        # Check if a session is in progress
-        if self.image_files and self.btn_load.cget("state") == "disabled":
-            session_label = "Culling" if self.app_mode == "sort" else "Viewing"
-            result = messagebox.askyesno(
-                f"{session_label} In Progress",
-                f"{session_label} is currently in progress.\nSettings changes will apply to the next session.\n\nOpen settings anyway?"
-            )
-            if not result:
-                return
-
-        # Create and show settings dialog
+        """Open settings dialog. Changes apply immediately to the current session."""
         dialog = SettingsDialog(self.root, self.config_manager, app_mode=self.app_mode)
         dialog.show()
 
@@ -1191,6 +1227,7 @@ class RapidCullerApp:
                 display_path = filename
 
             self.lbl_status.config(text=f"Image {self.current_index + 1} of {len(self.image_files)}: {display_path}")
+            self.root.title(f"Image {self.current_index + 1} of {len(self.image_files)} — Rapid Image Culler")
 
             try:
                 # Load full-size PIL image and cache it
@@ -1335,6 +1372,13 @@ class RapidCullerApp:
     def action_reject(self, event):
         if self.app_mode == "view":
             return  # No file operations in view mode
+        if not self.reject_dir:
+            # Safety: set up reject dir if it wasn't initialized
+            if self.src_dir:
+                self.reject_dir = os.path.join(self.src_dir, "_REJECTS")
+                os.makedirs(self.reject_dir, exist_ok=True)
+            else:
+                return
         if self.image_files:
             self.move_and_advance(self.reject_dir)
 
@@ -1405,6 +1449,217 @@ class RapidCullerApp:
         self.pan_offset = [0, 0]
         self._render_image()
 
+    def copy_to_clipboard(self):
+        """Copy the current image to the system clipboard."""
+        if self.current_pil_image is None:
+            return
+        try:
+            import win32clipboard
+            output = io.BytesIO()
+            # Convert to BMP for Windows clipboard (strip BMP file header - first 14 bytes)
+            img = self.current_pil_image.convert('RGB')
+            img.save(output, 'BMP')
+            data = output.getvalue()[14:]
+            output.close()
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+            win32clipboard.CloseClipboard()
+            self.lbl_status.config(text="Image copied to clipboard!")
+        except ImportError:
+            messagebox.showerror("Error", "pywin32 is required for clipboard support.\nInstall with: pip install pywin32")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to copy image: {e}")
+
+    def start_crop_copy(self):
+        """Enter crop selection mode — overlay a Canvas on the image for drawing."""
+        if self.current_pil_image is None:
+            return
+        self.crop_mode = True
+        self.crop_start = None
+        self.btn_crop_copy.config(bg="#ffcc00", text="Select area...")
+        self.lbl_status.config(text="Draw a rectangle on the image, then release to copy. Press Escape to cancel.")
+
+        # Create a Canvas overlay that sits exactly on top of the image label
+        label = self.image_label
+        self.crop_canvas = tk.Canvas(self.image_frame, highlightthickness=0,
+                                     bg="#333333", cursor="crosshair")
+        self.crop_canvas.place(x=label.winfo_x(), y=label.winfo_y(),
+                               width=label.winfo_width(), height=label.winfo_height())
+
+        # Draw current image onto the canvas
+        if self.photo_image:
+            cw = label.winfo_width()
+            ch = label.winfo_height()
+            self.crop_canvas.create_image(cw // 2, ch // 2, image=self.photo_image, tags="bg")
+
+        # Dim overlay — semi-transparent dark layer drawn over the whole image
+        # (we'll punch a hole in it during drag via the _crop_redraw_overlay method)
+        self._crop_dim_image = None  # will hold dimmed PhotoImage reference
+
+        # Bind crop events on the canvas
+        self.crop_canvas.bind("<ButtonPress-1>", self._crop_start)
+        self.crop_canvas.bind("<B1-Motion>", self._crop_drag)
+        self.crop_canvas.bind("<ButtonRelease-1>", self._crop_end)
+        self.root.bind("<Escape>", self._crop_cancel)
+
+
+    def _crop_cancel(self, event=None):
+        """Cancel crop mode, destroy overlay, restore normal bindings."""
+        self.crop_mode = False
+        self.crop_start = None
+        self._crop_dim_image = None
+        if hasattr(self, 'crop_canvas') and self.crop_canvas:
+            self.crop_canvas.destroy()
+            self.crop_canvas = None
+        self.btn_crop_copy.config(bg="#d0d0d0", text="Crop+Copy")
+        # Restore normal bindings
+        self.action_mapper.bind_all(self.config_manager.config)
+        self.root.unbind("<Escape>")
+        if self.image_files:
+            self.show_current_image()
+
+    def _crop_start(self, event):
+        """Record where the user started drawing."""
+        self.crop_start = (event.x, event.y)
+        # Clear any previous selection visuals
+        self.crop_canvas.delete("selection")
+        self.crop_canvas.delete("dim")
+        self.crop_canvas.delete("size_label")
+
+    def _crop_drag(self, event):
+        """Draw selection rectangle with dimmed surround as user drags."""
+        if not self.crop_start:
+            return
+        x0, y0 = self.crop_start
+        x1, y1 = event.x, event.y
+        canvas = self.crop_canvas
+        cw = canvas.winfo_width()
+        ch = canvas.winfo_height()
+
+        # Clear previous frame
+        canvas.delete("dim")
+        canvas.delete("selection")
+        canvas.delete("size_label")
+
+        # Normalize
+        left, right = min(x0, x1), max(x0, x1)
+        top, bottom = min(y0, y1), max(y0, y1)
+
+        # Draw four semi-transparent dim rectangles around the selection
+        # Using stipple pattern for the dim effect
+        dim_opts = {"fill": "black", "stipple": "gray50", "outline": ""}
+        canvas.create_rectangle(0, 0, cw, top, tags="dim", **dim_opts)         # top strip
+        canvas.create_rectangle(0, bottom, cw, ch, tags="dim", **dim_opts)      # bottom strip
+        canvas.create_rectangle(0, top, left, bottom, tags="dim", **dim_opts)   # left strip
+        canvas.create_rectangle(right, top, cw, bottom, tags="dim", **dim_opts) # right strip
+
+        # Draw selection border
+        canvas.create_rectangle(left, top, right, bottom,
+                                outline="#00ff00", width=2, tags="selection")
+
+        # Show dimensions label near the selection
+        sel_w = abs(x1 - x0)
+        sel_h = abs(y1 - y0)
+        # Convert to original image pixel dimensions for the label
+        img_dims = self._screen_to_image_coords(left, top, right, bottom)
+        if img_dims:
+            iw = img_dims[2] - img_dims[0]
+            ih = img_dims[3] - img_dims[1]
+            label_text = f"{iw} x {ih} px"
+        else:
+            label_text = f"{sel_w} x {sel_h}"
+        label_y = bottom + 16 if bottom + 20 < ch else top - 16
+        canvas.create_text((left + right) / 2, label_y, text=label_text,
+                           fill="#00ff00", font=("Arial", 10, "bold"), tags="size_label")
+
+    def _screen_to_image_coords(self, sx0, sy0, sx1, sy1):
+        """Convert screen coordinates on the canvas to original image pixel coordinates.
+        Returns (img_left, img_top, img_right, img_bottom) or None."""
+        label = self.image_label
+        label_w = label.winfo_width()
+        label_h = label.winfo_height()
+        img = self.current_pil_image
+        if img is None:
+            return None
+        img_w, img_h = img.size
+
+        if self.zoom_level == 1.0:
+            display = img.copy()
+            display.thumbnail((label_w, label_h), Image.Resampling.LANCZOS)
+            disp_w, disp_h = display.size
+            offset_x = (label_w - disp_w) / 2
+            offset_y = (label_h - disp_h) / 2
+            scale = img_w / disp_w
+            img_left = int(max(0, (sx0 - offset_x) * scale))
+            img_top = int(max(0, (sy0 - offset_y) * scale))
+            img_right = int(min(img_w, (sx1 - offset_x) * scale))
+            img_bottom = int(min(img_h, (sy1 - offset_y) * scale))
+        else:
+            fit_scale = min(label_w / img_w, label_h / img_h)
+            actual_scale = fit_scale * self.zoom_level
+            scaled_w = int(img_w * actual_scale)
+            scaled_h = int(img_h * actual_scale)
+            cx = scaled_w / 2 + self.pan_offset[0]
+            cy = scaled_h / 2 + self.pan_offset[1]
+            vis_left = max(0, int(cx - label_w / 2))
+            vis_top = max(0, int(cy - label_h / 2))
+            img_left = int(max(0, (vis_left + sx0) / actual_scale))
+            img_top = int(max(0, (vis_top + sy0) / actual_scale))
+            img_right = int(min(img_w, (vis_left + sx1) / actual_scale))
+            img_bottom = int(min(img_h, (vis_top + sy1) / actual_scale))
+
+        return (img_left, img_top, img_right, img_bottom)
+
+    def _crop_end(self, event):
+        """Finish crop selection and copy the region to clipboard."""
+        if not self.crop_start:
+            return
+        x0, y0 = self.crop_start
+        x1, y1 = event.x, event.y
+
+        # Ensure we have a valid rectangle (not just a click)
+        if abs(x1 - x0) < 5 or abs(y1 - y0) < 5:
+            self._crop_cancel()
+            return
+
+        # Normalize and convert to image coordinates
+        left, right = min(x0, x1), max(x0, x1)
+        top, bottom = min(y0, y1), max(y0, y1)
+        coords = self._screen_to_image_coords(left, top, right, bottom)
+
+        if coords:
+            img_left, img_top, img_right, img_bottom = coords
+            if img_right > img_left and img_bottom > img_top:
+                cropped = self.current_pil_image.crop((img_left, img_top, img_right, img_bottom))
+                try:
+                    import win32clipboard
+                    output = io.BytesIO()
+                    cropped.convert('RGB').save(output, 'BMP')
+                    data = output.getvalue()[14:]
+                    output.close()
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+                    win32clipboard.CloseClipboard()
+                    self.lbl_status.config(
+                        text=f"Cropped region ({img_right-img_left}x{img_bottom-img_top}) copied to clipboard!")
+                except ImportError:
+                    messagebox.showerror("Error",
+                        "pywin32 is required for clipboard support.\nInstall with: pip install pywin32")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to copy cropped image: {e}")
+
+        self._crop_cancel()
+
+    def _on_window_resize(self, event):
+        """Debounced handler to re-render image when window is resized."""
+        if event.widget != self.root:
+            return
+        if self._resize_after_id:
+            self.root.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.root.after(100, self._render_image)
+
     def _on_pan_start(self, event):
         """Handle mouse press for panning."""
         if self.zoom_level > 1.0:
@@ -1451,7 +1706,8 @@ class RapidCullerApp:
     def _do_left_click_action(self, event):
         """Execute the configured left-click action."""
         config = self.config_manager.config
-        left_action = config.get("button_mappings", {}).get("left_click", "keep")
+        settings = config.get(f"{self.app_mode}_settings", config)
+        left_action = settings.get("button_mappings", {}).get("left_click", "keep")
         if left_action != "disabled":
             handler = self.action_mapper._create_handler(left_action)
             if handler:
@@ -1460,6 +1716,7 @@ class RapidCullerApp:
     def finish_culling(self):
         self.image_label.config(image="", text="--- NO MORE IMAGES ---", fg="white", font=("Arial", 24))
         self.lbl_status.config(text="Finished.")
+        self.root.title("Rapid Image Culler for Datasets")
         if self.app_mode == "sort":
             messagebox.showinfo("Done", "All images have been sorted!")
             self.root.quit()
