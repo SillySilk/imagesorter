@@ -11,7 +11,20 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(pip install:*)",
-      "Bash(pyinstaller:*)"
+      "Bash(pyinstaller:*)",
+      "Bash(QUICK_BUILD.bat)",
+      "Bash(cmd.exe /c QUICK_BUILD.bat:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__read_text_file",
+      "Bash(cd:*)",
+      "Bash(python:*)",
+      "Skill(hookify:list)",
+      "Bash(gh repo view:*)",
+      "Bash(taskkill /f /im Rapid_Image_Culler.exe)",
+      "Bash(rm -rf build)",
+      "Bash(rm -f dist/Rapid_Image_Culler.exe)"
     ]
   }
 }

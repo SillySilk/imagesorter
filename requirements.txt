@@ -3,6 +3,7 @@
 
 # Core dependencies
 pillow>=10.0.0
+pywin32>=306
 
 # Build tool
 pyinstaller>=6.0.0

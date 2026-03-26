@@ -6,7 +6,7 @@ REM Kill any running instance so the old exe can be deleted
 taskkill /f /im "Rapid_Image_Culler.exe" >nul 2>&1
 timeout /t 1 /nobreak >nul
 
-python -m pip install --quiet --upgrade pyinstaller pillow
+python -m pip install --quiet --upgrade pyinstaller pillow pywin32
 if exist "dist" rmdir /s /q "dist"
 if exist "build" rmdir /s /q "build"
 python -m PyInstaller --clean --noconfirm Rapid_Image_Culler.spec
