@@ -1475,6 +1475,8 @@ class RapidCullerApp:
         """Enter crop selection mode — overlay a Canvas on the image for drawing."""
         if self.current_pil_image is None:
             return
+        if self.crop_mode:
+            return  # Already in crop mode, ignore double-click
         self.crop_mode = True
         self.crop_start = None
         self.btn_crop_copy.config(bg="#ffcc00", text="Select area...")
@@ -1506,6 +1508,8 @@ class RapidCullerApp:
 
     def _crop_cancel(self, event=None):
         """Cancel crop mode, destroy overlay, restore normal bindings."""
+        if not self.crop_mode:
+            return  # Not in crop mode, nothing to cancel
         self.crop_mode = False
         self.crop_start = None
         self._crop_dim_image = None
@@ -1513,9 +1517,12 @@ class RapidCullerApp:
             self.crop_canvas.destroy()
             self.crop_canvas = None
         self.btn_crop_copy.config(bg="#d0d0d0", text="Crop+Copy")
-        # Restore normal bindings
-        self.action_mapper.bind_all(self.config_manager.config)
+        # Unbind Escape first, then flush pending events before restoring normal
+        # bindings — prevents queued mouse-release events (from clicking the canvas)
+        # from firing keep/reject via the newly-restored image_label handlers.
         self.root.unbind("<Escape>")
+        self.root.update_idletasks()
+        self.action_mapper.bind_all(self.config_manager.config)
         if self.image_files:
             self.show_current_image()
 
