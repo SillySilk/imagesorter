@@ -940,7 +940,9 @@ class RapidCullerApp:
         tk.Button(zoom_bar, text=" + ", font=("Arial", 10, "bold"), bg="#d0d0d0",
                   relief="raised", command=lambda: self.zoom_in(None), takefocus=False).pack(side="left", padx=2)
         tk.Button(zoom_bar, text="Fit", font=("Arial", 9), bg="#d0d0d0",
-                  relief="raised", command=lambda: self.fit_to_page(None), takefocus=False).pack(side="left", padx=(2, 8))
+                  relief="raised", command=lambda: self.fit_to_page(None), takefocus=False).pack(side="left", padx=(2, 4))
+        tk.Button(zoom_bar, text="\u21ba", font=("Arial", 10, "bold"), bg="#d0d0d0",
+                  relief="raised", command=self.refresh, takefocus=False).pack(side="left", padx=(2, 8))
         self.lbl_zoom_level = tk.Label(zoom_bar, text="Fit", bg="#dcdcdc", fg="#555", font=("Arial", 9))
         self.lbl_zoom_level.pack(side="left")
         tk.Button(zoom_bar, text="Copy", font=("Arial", 9), bg="#d0d0d0",
@@ -948,6 +950,8 @@ class RapidCullerApp:
         self.btn_crop_copy = tk.Button(zoom_bar, text="Crop+Copy", font=("Arial", 9), bg="#d0d0d0",
                   relief="raised", command=self.start_crop_copy, takefocus=False)
         self.btn_crop_copy.pack(side="right", padx=2)
+        tk.Button(zoom_bar, text="Refresh", font=("Arial", 9), bg="#d0d0d0",
+                  relief="raised", command=self.refresh, takefocus=False).pack(side="right", padx=2)
 
         # Main Image Display Area
         self.image_frame = tk.Frame(root, bg="#333333")
@@ -965,6 +969,7 @@ class RapidCullerApp:
 
         # Global keyboard shortcuts
         self.root.bind("<Control-c>", lambda e: self.copy_to_clipboard())
+        self.root.bind("<F5>", self.refresh)
 
         # Re-render image on window resize
         self.root.bind("<Configure>", self._on_window_resize)
@@ -1466,6 +1471,9 @@ class RapidCullerApp:
             win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
             win32clipboard.CloseClipboard()
             self.lbl_status.config(text="Image copied to clipboard!")
+            # Flush pending Windows paint messages to prevent display glitch
+            self.root.update_idletasks()
+            self._render_image()
         except ImportError:
             messagebox.showerror("Error", "pywin32 is required for clipboard support.\nInstall with: pip install pywin32")
         except Exception as e:
@@ -1651,6 +1659,8 @@ class RapidCullerApp:
                     win32clipboard.CloseClipboard()
                     self.lbl_status.config(
                         text=f"Cropped region ({img_right-img_left}x{img_bottom-img_top}) copied to clipboard!")
+                    # Flush pending Windows paint messages to prevent display glitch
+                    self.root.update_idletasks()
                 except ImportError:
                     messagebox.showerror("Error",
                         "pywin32 is required for clipboard support.\nInstall with: pip install pywin32")
@@ -1719,6 +1729,49 @@ class RapidCullerApp:
             handler = self.action_mapper._create_handler(left_action)
             if handler:
                 handler(event)
+
+    def refresh(self, event=None):
+        """Rescan the source directory and reload the current image from disk."""
+        if not self.src_dir or not self.image_files:
+            return
+
+        # Remember the current image path to restore position after rescan
+        current_path = None
+        if self.image_files and self.current_index < len(self.image_files):
+            current_path = self.image_files[self.current_index]["full_path"]
+
+        # Rescan directory
+        try:
+            recursive = self.config_manager.get("options.recursive_loading", False)
+            new_files = RecursiveScanner.scan(self.src_dir, recursive)
+            new_files.sort(key=lambda x: x["full_path"])
+        except Exception as e:
+            self.lbl_status.config(text=f"Refresh error: {e}")
+            return
+
+        self.image_files = new_files
+
+        if not self.image_files:
+            self.current_pil_image = None
+            self.image_label.config(image="", text="No images found", fg="#888888")
+            self.lbl_status.config(text="No images in source directory.")
+            return
+
+        # Try to restore position to the same file
+        if current_path:
+            for idx, img_info in enumerate(self.image_files):
+                if img_info["full_path"] == current_path:
+                    self.current_index = idx
+                    break
+            else:
+                # File is gone; clamp to valid range
+                self.current_index = min(self.current_index, len(self.image_files) - 1)
+        else:
+            self.current_index = min(self.current_index, len(self.image_files) - 1)
+
+        # Clear cached PIL image to force fresh load from disk
+        self.current_pil_image = None
+        self.show_current_image()
 
     def finish_culling(self):
         self.image_label.config(image="", text="--- NO MORE IMAGES ---", fg="white", font=("Arial", 24))
