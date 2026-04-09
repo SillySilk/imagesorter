@@ -431,7 +431,7 @@ class ActionMapper:
 class RecursiveScanner:
     """Scans directory tree for images, maintaining structure information."""
 
-    VALID_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.psd')
+    VALID_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.psd', '.svg')
 
     @staticmethod
     def scan(root_dir, recursive=False):
@@ -1236,9 +1236,24 @@ class RapidCullerApp:
 
             try:
                 # Load full-size PIL image and cache it
-                self.current_pil_image = Image.open(full_path)
-                # Force load so file handle is released
-                self.current_pil_image.load()
+                if full_path.lower().endswith('.svg'):
+                    from svglib.svglib import svg2rlg
+                    from reportlab.graphics import renderPM
+                    drawing = svg2rlg(full_path)
+                    if drawing is None:
+                        raise ValueError("svglib could not parse SVG file")
+                    # Rasterize at 4x scale so zooming stays crisp
+                    scale = 4.0
+                    drawing.width *= scale
+                    drawing.height *= scale
+                    drawing.transform = (scale, 0, 0, scale, 0, 0)
+                    png_bytes = renderPM.drawToString(drawing, fmt="PNG")
+                    self.current_pil_image = Image.open(io.BytesIO(png_bytes))
+                    self.current_pil_image.load()
+                else:
+                    self.current_pil_image = Image.open(full_path)
+                    # Force load so file handle is released
+                    self.current_pil_image.load()
 
                 # Ensure image is in a displayable mode (handles PSD CMYK, etc.)
                 if self.current_pil_image.mode == 'CMYK':
