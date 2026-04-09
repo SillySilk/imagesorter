@@ -5,6 +5,12 @@ import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    _HEIF_SUPPORTED = True
+except ImportError:
+    _HEIF_SUPPORTED = False
 import copy
 import random
 import io
@@ -431,7 +437,41 @@ class ActionMapper:
 class RecursiveScanner:
     """Scans directory tree for images, maintaining structure information."""
 
-    VALID_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp', '.psd', '.svg')
+    VALID_EXTENSIONS = (
+        # Common formats
+        '.png', '.jpg', '.jpeg', '.jfif', '.jpe',
+        '.bmp', '.dib',
+        '.gif',
+        '.tiff', '.tif',
+        '.webp',
+        '.avif',
+        # Icon / cursor
+        '.ico', '.icns', '.cur',
+        # Professional / layered
+        '.psd',
+        # Vector (rasterized on load)
+        '.svg',
+        # JPEG 2000
+        '.jp2', '.j2k', '.jpf', '.jpx', '.j2c',
+        # Portable bitmap family
+        '.ppm', '.pgm', '.pbm', '.pnm',
+        # Targa
+        '.tga',
+        # PCX / DCX
+        '.pcx', '.dcx',
+        # SGI / IRIX
+        '.sgi', '.rgb', '.rgba', '.bw',
+        # X11
+        '.xbm', '.xpm',
+        # DirectDraw Surface
+        '.dds',
+        # FLI / FLC animation
+        '.fli', '.flc',
+        # Miscellaneous
+        '.im', '.msp', '.qoi', '.blp', '.fits', '.spi',
+        # HEIF / HEIC (Apple) — requires pillow-heif
+        '.heic', '.heif',
+    )
 
     @staticmethod
     def scan(root_dir, recursive=False):
