@@ -45,7 +45,10 @@ const api = {
     close: () => ipcRenderer.invoke('window:close')
   },
   app: {
-    version: (): Promise<string> => ipcRenderer.invoke('app:version')
+    version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    onOpenFile: (callback: (filePath: string) => void): void => {
+      ipcRenderer.on('app:openFile', (_event, filePath: string) => callback(filePath))
+    }
   }
 }
 

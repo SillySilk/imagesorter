@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu } from 'electron'
-import { join } from 'path'
+import { join, extname } from 'path'
+import { statSync } from 'fs'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
 import { moveFile, copyFile, deleteFile } from './fileOps'
@@ -7,14 +8,38 @@ import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
 
 let configManager: ConfigManager
 
+const MEDIA_EXTS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp',
+  '.svg', '.avif', '.heic', '.heif', '.mp4', '.webm', '.mov', '.avi', '.mkv'
+])
+
+function extractFilePath(argv: string[]): string | null {
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg.startsWith('-') || arg === '.') continue
+    try {
+      const stat = statSync(arg)
+      if (stat.isFile() && MEDIA_EXTS.has(extname(arg).toLowerCase())) return arg
+    } catch { /* not a valid path */ }
+  }
+  return null
+}
+
+let pendingFilePath: string | null = extractFilePath(process.argv)
+
 // Single instance lock — focus existing window if already running
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 }
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
   const win = BrowserWindow.getAllWindows()[0]
-  if (win) { if (win.isMinimized()) win.restore(); win.focus() }
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.focus()
+    const filePath = extractFilePath(argv)
+    if (filePath) win.webContents.send('app:openFile', filePath)
+  }
 })
 
 function createWindow(): void {
@@ -45,6 +70,13 @@ function createWindow(): void {
       callback({ path: decodeURIComponent(url) })
     } catch {
       callback({ error: -2 })
+    }
+  })
+
+  win.webContents.on('did-finish-load', () => {
+    if (pendingFilePath) {
+      win.webContents.send('app:openFile', pendingFilePath)
+      pendingFilePath = null
     }
   })
 

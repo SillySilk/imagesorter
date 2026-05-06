@@ -1,0 +1,62 @@
+appId: com.panpdx.aperture
+productName: Aperture
+copyright: "Copyright © 2024 PanPDX"
+
+directories:
+  output: dist
+
+files:
+  - out/**
+  - resources/**
+
+extraFiles:
+  - from: register-associations.bat
+    to: register-associations.bat
+  - from: register-associations.ps1
+    to: register-associations.ps1
+
+asarUnpack:
+  - "node_modules/sharp/**"
+  - "node_modules/@img/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Aperture
+
+fileAssociations:
+  - ext:
+      - jpg
+      - jpeg
+      - png
+      - gif
+      - webp
+      - tiff
+      - tif
+      - bmp
+      - avif
+      - heic
+      - heif
+    name: Image File
+    description: Open with Aperture
+    role: Viewer
+    icon: resources/icon.ico
+  - ext:
+      - mp4
+      - webm
+      - mov
+      - avi
+      - mkv
+    name: Video File
+    description: Open with Aperture
+    role: Viewer
+    icon: resources/icon.ico

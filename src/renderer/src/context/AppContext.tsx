@@ -108,8 +108,16 @@ function reducer(state: AppState, action: AppAction): AppState {
 
 const AppContext = createContext<{ state: AppState; dispatch: React.Dispatch<AppAction> } | null>(null)
 
+function getDirFromPath(filePath: string): string {
+  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+  return lastSlash > 0 ? filePath.substring(0, lastSlash) : filePath
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const configRef = React.useRef<AppState['config']>(null)
+
+  useEffect(() => { configRef.current = state.config }, [state.config])
 
   useEffect(() => {
     const init = async () => {
@@ -142,6 +150,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     init()
+  }, [])
+
+  // Handle file open from OS (double-click image, file association)
+  useEffect(() => {
+    window.api.app.onOpenFile(async (filePath) => {
+      const dir = getDirFromPath(filePath)
+      const cfg = configRef.current
+      dispatch({ type: 'SET_LOADING', payload: true })
+      try {
+        const files = await window.api.scanner.scan({
+          dir,
+          recursive: false,
+          fileTypes: cfg?.options?.file_types || []
+        })
+        dispatch({ type: 'SET_FILES', payload: files })
+        const idx = files.findIndex(f => f.full_path.toLowerCase() === filePath.toLowerCase())
+        if (idx > 0) dispatch({ type: 'SET_INDEX', payload: idx })
+        if (cfg) {
+          const updated = { ...cfg, src: dir }
+          await window.api.config.save(updated)
+          dispatch({ type: 'SET_CONFIG', payload: updated })
+        }
+      } catch (e) {
+        console.warn('Failed to open file:', e)
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false })
+      }
+    })
   }, [])
 
   return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>
