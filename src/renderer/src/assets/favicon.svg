@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="bg" cx="40%" cy="35%" r="72%">
+      <stop offset="0%"   stop-color="#15294a"/>
+      <stop offset="100%" stop-color="#040c1a"/>
+    </radialGradient>
+
+    <!-- Blade gradient: brighter at tip (outer edge), fades toward hidden base -->
+    <radialGradient id="bladeGrad" gradientUnits="userSpaceOnUse"
+                    cx="50" cy="50" r="46">
+      <stop offset="0%"   stop-color="#006480"/>
+      <stop offset="45%"  stop-color="#00bcd4"/>
+      <stop offset="100%" stop-color="#80eeff"/>
+    </radialGradient>
+
+    <!-- Glassy lens core -->
+    <radialGradient id="core" cx="35%" cy="30%" r="70%">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="40%"  stop-color="#c8f6ff"/>
+      <stop offset="100%" stop-color="#30b8d8"/>
+    </radialGradient>
+
+    <!-- Soft inner shadow on the aperture hole -->
+    <radialGradient id="holeShadow" cx="50%" cy="50%" r="50%">
+      <stop offset="60%"  stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>
+    </radialGradient>
+
+    <clipPath id="outerClip">
+      <circle cx="50" cy="50" r="48"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background disc -->
+  <circle cx="50" cy="50" r="50" fill="url(#bg)"/>
+
+  <!-- Subtle outer bezel ring -->
+  <circle cx="50" cy="50" r="47.5" fill="none" stroke="#00bcd4" stroke-width="1.5" opacity="0.18"/>
+
+  <!-- ── Aperture blades ──────────────────────────────────────────────
+       Each blade is a pill (rect with fully-rounded short ends).
+       x=43 centres the 14-wide rect on x=50.
+       y=9  places the rounded tip near the top of the disc.
+       height=43 puts the flat base at y=52 (2 px past centre),
+       so the dark centre circle hides the messy overlap.
+  ──────────────────────────────────────────────────────────────────── -->
+  <g clip-path="url(#outerClip)">
+    <rect x="43" y="9" width="14" height="43" rx="7"
+          fill="url(#bladeGrad)" opacity="0.9" transform="rotate(  0 50 50)"/>
+    <rect x="43" y="9" width="14" height="43" rx="7"
+          fill="url(#bladeGrad)" opacity="0.9" transform="rotate( 60 50 50)"/>
+    <rect x="43" y="9" width="14" height="43" rx="7"
+          fill="url(#bladeGrad)" opacity="0.9" transform="rotate(120 50 50)"/>
+    <rect x="43" y="9" width="14" height="43" rx="7"
+          fill="url(#bladeGrad)" opacity="0.9" transform="rotate(180 50 50)"/>
+    <rect x="43" y="9" width="14" height="43" rx="7"
+          fill="url(#bladeGrad)" opacity="0.9" transform="rotate(240 50 50)"/>
+    <rect x="43" y="9" width="14" height="43" rx="7"
+          fill="url(#bladeGrad)" opacity="0.9" transform="rotate(300 50 50)"/>
+  </g>
+
+  <!-- Centre aperture hole — dark disc that hides blade overlap -->
+  <circle cx="50" cy="50" r="17.5" fill="url(#bg)"/>
+
+  <!-- Inner shadow ring for depth -->
+  <circle cx="50" cy="50" r="17.5" fill="url(#holeShadow)"/>
+
+  <!-- Aperture-ring hairline -->
+  <circle cx="50" cy="50" r="17.5" fill="none"
+          stroke="#00bcd4" stroke-width="0.9" opacity="0.5"/>
+
+  <!-- Lens core — glassy circle -->
+  <circle cx="50" cy="50" r="7.5" fill="url(#core)"/>
+
+  <!-- Primary specular highlight -->
+  <circle cx="46.2" cy="46.2" r="2.8" fill="white" opacity="0.68"/>
+
+  <!-- Secondary micro-glint -->
+  <circle cx="53.5" cy="48.5" r="1.1" fill="white" opacity="0.30"/>
+</svg>
