@@ -1021,11 +1021,6 @@ body{
   box-shadow: 0 0 30px rgba(168,45,68,0.4), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 .vplayer .play-orb svg{ width: 22px; height: 22px; color: var(--silver-1); margin-left: 3px; }
-.vplayer .scanlines{
-  position:absolute; inset:0;
-  background-image: repeating-linear-gradient(0deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,0.18) 2px, rgba(0,0,0,0.18) 3px);
-  pointer-events: none;
-}
 .vplayer .frame-info{
   position: absolute; top: 12px; left: 14px;
   font-family: var(--mono); font-size: 9px;

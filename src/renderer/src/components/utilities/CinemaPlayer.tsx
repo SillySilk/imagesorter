@@ -47,7 +47,6 @@ export default function CinemaPlayer({ file }: Props) {
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
           onClick={togglePlay}
         />
-        <div className="scanlines" style={{ pointerEvents: 'none' }} />
         {!playing && (
           <div className="play-orb" onClick={togglePlay} style={{ cursor: 'pointer', zIndex: 2 }}>
             <IcPlay style={{ width: 22, height: 22, color: 'var(--silver-1)', marginLeft: 3 }} />

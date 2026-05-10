@@ -28,7 +28,7 @@ export default function TitleBar({ onOpenSettings }: Props) {
         <button onClick={() => loadFolder()}>File</button>
         <button>Edit</button>
         <button onClick={() => reloadCurrentFolder()}>View</button>
-        <button>Tools</button>
+        <button onClick={() => dispatch({ type: 'SET_RAIL_TAB', payload: 'utils' })}>Tools</button>
         <button onClick={onOpenSettings}>Preferences</button>
         <button>Help</button>
       </div>

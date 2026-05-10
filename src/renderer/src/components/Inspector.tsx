@@ -12,7 +12,7 @@ interface Metadata {
 }
 
 export default function Inspector() {
-  const { state } = useApp()
+  const { state, dispatch } = useApp()
   const { files, currentIndex, dispositions, config } = state
   const currentFile = files[currentIndex] || null
   const [meta, setMeta] = useState<Metadata | null>(null)
@@ -141,6 +141,7 @@ export default function Inspector() {
                 className={`queue-cell${isCurrent ? ' current' : disp === 'kept' ? ' kept' : disp === 'rejected' ? ' rejected' : ''}`}
                 title={f.filename}
                 style={{ cursor: 'pointer' }}
+                onClick={() => dispatch({ type: 'SET_INDEX', payload: absIdx })}
               >
                 {thumb && (
                   <img

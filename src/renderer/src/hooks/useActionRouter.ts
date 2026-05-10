@@ -107,6 +107,8 @@ export function useActionRouter() {
     }
 
     const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest('button, input, select, textarea, a, [role="button"], [role="dialog"]')) return
       mouseDownPos.current = { x: e.clientX, y: e.clientY }
     }
 

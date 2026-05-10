@@ -4,11 +4,12 @@ import TitleBar from './components/TitleBar'
 import Rail from './components/Rail'
 import Canvas from './components/Canvas'
 import Inspector from './components/Inspector'
+import UtilitiesPanel from './components/utilities/UtilitiesPanel'
 import StatusBar from './components/StatusBar'
 import PreferencesModal from './components/preferences/PreferencesModal'
 
 function AppShell() {
-  const { dispatch } = useApp()
+  const { state, dispatch } = useApp()
 
   const openSettings = useCallback((tab?: string) => {
     dispatch({ type: 'OPEN_SETTINGS', payload: tab })
@@ -20,7 +21,7 @@ function AppShell() {
       <Rail onOpenSettings={() => openSettings()} />
       <div className="main">
         <Canvas />
-        <Inspector />
+        {state.railTab === 'utils' ? <UtilitiesPanel /> : <Inspector />}
       </div>
       <StatusBar />
       <PreferencesModal />
