@@ -122,23 +122,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const [config, version] = await Promise.all([
+        const [config, version, pendingFile] = await Promise.all([
           window.api.config.load(),
-          window.api.app.version()
+          window.api.app.version(),
+          window.api.app.getPendingFile()
         ])
         dispatch({ type: 'SET_CONFIG', payload: config })
         dispatch({ type: 'SET_VERSION', payload: version })
 
-        // Auto-load last used source folder
-        if (config.src) {
+        const srcDir = pendingFile ? getDirFromPath(pendingFile) : config.src
+
+        if (srcDir) {
           dispatch({ type: 'SET_LOADING', payload: true })
           try {
             const files = await window.api.scanner.scan({
-              dir: config.src,
-              recursive: config.options?.recursive_loading || false,
+              dir: srcDir,
+              recursive: pendingFile ? false : (config.options?.recursive_loading || false),
               fileTypes: config.options?.file_types || []
             })
             dispatch({ type: 'SET_FILES', payload: files })
+
+            if (pendingFile) {
+              const idx = files.findIndex(f => f.full_path.toLowerCase() === pendingFile.toLowerCase())
+              if (idx > 0) dispatch({ type: 'SET_INDEX', payload: idx })
+              const updated = { ...config, src: srcDir }
+              await window.api.config.save(updated)
+              dispatch({ type: 'SET_CONFIG', payload: updated })
+            }
           } catch (e) {
             console.warn('Auto-load failed:', e)
           } finally {

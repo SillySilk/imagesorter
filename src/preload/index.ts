@@ -46,6 +46,7 @@ const api = {
   },
   app: {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    getPendingFile: (): Promise<string | null> => ipcRenderer.invoke('app:getPendingFile'),
     onOpenFile: (callback: (filePath: string) => void): void => {
       ipcRenderer.on('app:openFile', (_event, filePath: string) => callback(filePath))
     }

@@ -73,13 +73,6 @@ function createWindow(): void {
     }
   })
 
-  win.webContents.on('did-finish-load', () => {
-    if (pendingFilePath) {
-      win.webContents.send('app:openFile', pendingFilePath)
-      pendingFilePath = null
-    }
-  })
-
   if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -188,3 +181,9 @@ ipcMain.handle('window:maximize', () => {
 ipcMain.handle('window:close', () => BrowserWindow.getFocusedWindow()?.close())
 
 ipcMain.handle('app:version', () => app.getVersion())
+
+ipcMain.handle('app:getPendingFile', () => {
+  const f = pendingFilePath
+  pendingFilePath = null
+  return f
+})
