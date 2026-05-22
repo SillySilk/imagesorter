@@ -38,6 +38,10 @@ const api = {
     copyRegion: (opts: { filePath: string; x: number; y: number; width: number; height: number }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('image:copyRegion', opts)
   },
+  upscale: {
+    process: (opts: { filePath: string; scale: 2 | 3 | 4; kernel: string; outputFormat: 'source' | 'png' | 'jpeg'; destDir: string | null }): Promise<{ ok: boolean; outputPath?: string; error?: string }> =>
+      ipcRenderer.invoke('upscale:process', opts)
+  },
   shell: {
     showInExplorer: (opts: { filePath: string }) => ipcRenderer.invoke('shell:showInExplorer', opts),
     openExternal: (opts: { filePath: string }) => ipcRenderer.invoke('shell:openExternal', opts),

@@ -177,6 +177,35 @@ ipcMain.handle('window:maximize', () => {
 })
 ipcMain.handle('window:close', () => BrowserWindow.getFocusedWindow()?.close())
 
+ipcMain.handle('upscale:process', async (_e, {
+  filePath, scale, kernel, outputFormat, destDir
+}: { filePath: string; scale: 2 | 3 | 4; kernel: string; outputFormat: 'source' | 'png' | 'jpeg'; destDir: string | null }) => {
+  try {
+    const sharp = (await import('sharp')).default
+    const { join, dirname, basename, extname } = await import('path')
+
+    const meta = await sharp(filePath).metadata()
+    const newWidth = (meta.width || 0) * scale
+    const newHeight = (meta.height || 0) * scale
+
+    const origExt = extname(filePath)
+    const origBase = basename(filePath, origExt)
+    const ext = outputFormat === 'png' ? '.png' : outputFormat === 'jpeg' ? '.jpg' : origExt
+    const outName = `${origBase}_${scale}x${ext}`
+    const outDir = destDir || dirname(filePath)
+    const outputPath = join(outDir, outName)
+
+    let pipeline = sharp(filePath).resize(newWidth, newHeight, { kernel: kernel as any, fit: 'fill' })
+    if (outputFormat === 'png') pipeline = pipeline.png({ compressionLevel: 8 })
+    else if (outputFormat === 'jpeg') pipeline = pipeline.jpeg({ quality: 95 })
+
+    await pipeline.toFile(outputPath)
+    return { ok: true, outputPath }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
 ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: string }) => {
   try {
     const sharp = (await import('sharp')).default

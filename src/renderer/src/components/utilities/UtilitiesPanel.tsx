@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useApp } from '../../context/AppContext'
 import { IcCinema, IcConvert, IcUpscale, IcWand, IcBack } from '../Icons'
+import UpscaleStudio from './UpscaleStudio'
 
 type SubView = null | 'video' | 'convert' | 'upscale' | 'aivideo'
 
@@ -26,11 +27,11 @@ const TILES = [
   {
     k: 'upscale' as const,
     Icon: IcUpscale,
-    status: 'planned',
+    status: 'ready',
     title: 'Upscale',
     em: 'Studio',
-    desc: '2× / 4× model-driven enhancement with grain preservation.',
-    features: ['Real-ESRGAN · SwinIR', 'Preserve film grain', 'GPU queue']
+    desc: 'High-quality 2× / 3× / 4× resize with Lanczos3, Mitchell & Bicubic.',
+    features: ['Lanczos3 · Mitchell · Bicubic', 'PNG · JPEG · source format', 'Saves next to original']
   },
   {
     k: 'aivideo' as const,
@@ -137,7 +138,7 @@ export default function UtilitiesPanel() {
   const content = (() => {
     if (subView === 'video') return <VideoConfig onBack={() => setSubView(null)} />
     if (subView === 'convert') return <PlannedPane onBack={() => setSubView(null)} title={<>File <em>Conversion</em></>} sub="Batch convert format · color space · containers" />
-    if (subView === 'upscale') return <PlannedPane onBack={() => setSubView(null)} title={<>Upscale <em>Studio</em></>} sub="Model-driven enhancement · 2× · 4× · grain-aware" />
+    if (subView === 'upscale') return <UpscaleStudio onBack={() => setSubView(null)} />
     if (subView === 'aivideo') return <PlannedPane onBack={() => setSubView(null)} title={<>AI Video <em>Atelier</em></>} sub="Prompt-driven cut · style · interpolate" />
     return <UtilitiesIndex onOpen={setSubView} />
   })()
