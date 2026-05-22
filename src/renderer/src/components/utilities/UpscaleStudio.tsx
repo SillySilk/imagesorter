@@ -43,16 +43,25 @@ export default function UpscaleStudio({ onBack }: Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null)
 
-  // Load dimensions of current image
+  // Load dimensions of current image — cancelled flag prevents stale-closure races
   useEffect(() => {
+    let cancelled = false
     setDimensions(null)
     setStatus('idle')
     setResultPath(null)
     setErrorMsg(null)
     if (!currentFile || currentFile.type !== 'image') return
     window.api.image.metadata({ filePath: currentFile.full_path })
-      .then(m => setDimensions({ w: m.width, h: m.height }))
-      .catch(() => {})
+      .then(m => {
+        if (cancelled) return
+        if (!m.width || !m.height) {
+          setDimensions({ w: 0, h: 0 })
+        } else {
+          setDimensions({ w: m.width, h: m.height })
+        }
+      })
+      .catch(() => { if (!cancelled) setDimensions({ w: 0, h: 0 }) })
+    return () => { cancelled = true }
   }, [currentFile?.full_path])
 
   const handlePickDir = useCallback(async () => {
@@ -87,7 +96,7 @@ export default function UpscaleStudio({ onBack }: Props) {
     }
   }, [currentFile, scale, kernel, outputFormat, outputDir])
 
-  const canRun = !!currentFile && currentFile.type === 'image' && status !== 'processing'
+  const canRun = !!currentFile && currentFile.type === 'image' && status !== 'processing' && !!dimensions && dimensions.w > 0
   const outputW = dimensions ? dimensions.w * scale : null
   const outputH = dimensions ? dimensions.h * scale : null
 
@@ -122,7 +131,13 @@ export default function UpscaleStudio({ onBack }: Props) {
             <div style={{ fontSize: 11, color: 'var(--silver-2)', fontFamily: 'var(--mono)', wordBreak: 'break-all', marginBottom: 6 }}>
               {currentFile.filename}
             </div>
-            {dimensions ? (
+            {dimensions === null ? (
+              <div style={{ fontSize: 10, color: 'var(--text-mute)', fontFamily: 'var(--mono)' }}>reading dimensions…</div>
+            ) : dimensions.w === 0 ? (
+              <div style={{ fontSize: 10, color: 'var(--wine-3)', fontFamily: 'var(--mono)' }}>
+                Cannot read dimensions — format may not be supported for upscaling
+              </div>
+            ) : (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
                   {dimensions.w} × {dimensions.h}
@@ -132,8 +147,6 @@ export default function UpscaleStudio({ onBack }: Props) {
                   {outputW} × {outputH}
                 </div>
               </div>
-            ) : (
-              <div style={{ fontSize: 10, color: 'var(--text-mute)', fontFamily: 'var(--mono)' }}>loading…</div>
             )}
           </>
         ) : (
