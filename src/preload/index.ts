@@ -32,7 +32,11 @@ const api = {
     thumbnail: (opts: { filePath: string; width: number; height: number }): Promise<string> =>
       ipcRenderer.invoke('image:thumbnail', opts),
     histogram: (opts: { filePath: string }): Promise<number[]> =>
-      ipcRenderer.invoke('image:histogram', opts)
+      ipcRenderer.invoke('image:histogram', opts),
+    copyToClipboard: (opts: { filePath: string }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('image:copyToClipboard', opts),
+    copyRegion: (opts: { filePath: string; x: number; y: number; width: number; height: number }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('image:copyRegion', opts)
   },
   shell: {
     showInExplorer: (opts: { filePath: string }) => ipcRenderer.invoke('shell:showInExplorer', opts),

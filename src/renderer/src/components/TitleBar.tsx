@@ -1,14 +1,8 @@
 import React from 'react'
 import { useApp } from '../context/AppContext'
-import { useLoadFolder } from '../hooks/useLoadFolder'
 
-interface Props {
-  onOpenSettings: () => void
-}
-
-export default function TitleBar({ onOpenSettings }: Props) {
+export default function TitleBar() {
   const { state, dispatch } = useApp()
-  const { loadFolder, reloadCurrentFolder } = useLoadFolder()
   const { mode, files, currentIndex, config } = state
 
   const srcName = config?.src ? config.src.split(/[\\/]/).pop() : null
@@ -22,15 +16,6 @@ export default function TitleBar({ onOpenSettings }: Props) {
           <div className="brand-name">Aper<span className="accent">ture</span></div>
           <div className="brand-tag">Image Suite · v{state.version}</div>
         </div>
-      </div>
-
-      <div className="menu" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-        <button onClick={() => loadFolder()}>File</button>
-        <button>Edit</button>
-        <button onClick={() => reloadCurrentFolder()}>View</button>
-        <button onClick={() => dispatch({ type: 'SET_RAIL_TAB', payload: 'utils' })}>Tools</button>
-        <button onClick={onOpenSettings}>Preferences</button>
-        <button>Help</button>
       </div>
 
       <div className="titlebar-spacer"></div>

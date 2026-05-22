@@ -17,7 +17,7 @@ function AppShell() {
 
   return (
     <div className="app grain leather">
-      <TitleBar onOpenSettings={() => openSettings()} />
+      <TitleBar />
       <Rail onOpenSettings={() => openSettings()} />
       <div className="main">
         <Canvas />

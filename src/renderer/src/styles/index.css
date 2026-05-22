@@ -167,22 +167,6 @@ body{
   margin-top: 2px;
 }
 
-.menu{
-  display:flex; gap: 2px;
-  margin-left: 14px;
-}
-.menu button{
-  background: transparent;
-  border: 0;
-  color: var(--text-2);
-  padding: 6px 10px;
-  font-size: 12px;
-  font-family: var(--sans);
-  cursor: pointer;
-  border-radius: 3px;
-  letter-spacing: 0.02em;
-}
-.menu button:hover{ background: rgba(168,45,68,0.18); color: var(--silver-1); }
 
 .titlebar-spacer{ flex: 1; }
 
@@ -274,9 +258,11 @@ body{
 .canvas .corner-bl{ bottom:14px; left:14px; border-right:0; border-top:0; }
 
 .image-frame{
-  position: relative;
-  width: min(72%, 720px);
-  aspect-ratio: 4/5;
+  position: absolute;
+  top: 44px;
+  bottom: 82px;
+  left: 56px;
+  right: 56px;
   background:
     repeating-linear-gradient(45deg, #16121b 0 12px, #110d15 12px 24px);
   border: 1px solid var(--line-2);
@@ -367,7 +353,25 @@ body{
 .dock-btn.keep{ color: #b8d4a8; }
 .dock-btn.reject{ color: var(--wine-3); }
 .dock-btn.keep:hover{ background: rgba(60,90,40,0.25); }
+.dock-btn.active{ color: var(--wine-3); background: rgba(168,45,68,0.16); border-color: var(--line-wine); }
+.dock-btn:disabled{ opacity: 0.3; cursor: default; pointer-events: none; }
 .dock-divider{ width:1px; background: var(--line-1); margin: 4px 2px; }
+
+/* SELECTION OVERLAY */
+.selection-overlay{
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  z-index: 10;
+  user-select: none;
+}
+.selection-rect{
+  position: absolute;
+  border: 1.5px solid rgba(255,255,255,0.9);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.25);
+  background: rgba(168,45,68,0.1);
+  pointer-events: none;
+}
 .dock-zoom{
   display:flex; align-items:center; gap: 6px;
   padding: 0 10px;

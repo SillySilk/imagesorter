@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage } from 'electron'
 import { join, extname } from 'path'
 import { statSync } from 'fs'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
@@ -163,10 +163,7 @@ ipcMain.handle('shell:contextMenu', (_e, { filePath }: { filePath: string }) => 
     { type: 'separator' },
     {
       label: 'Copy File Path',
-      click: () => {
-        const { clipboard } = require('electron')
-        clipboard.writeText(filePath)
-      }
+      click: () => { clipboard.writeText(filePath) }
     }
   ])
   menu.popup({ window: win })
@@ -179,6 +176,36 @@ ipcMain.handle('window:maximize', () => {
   else win?.maximize()
 })
 ipcMain.handle('window:close', () => BrowserWindow.getFocusedWindow()?.close())
+
+ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: string }) => {
+  try {
+    const sharp = (await import('sharp')).default
+    const buffer = await sharp(filePath).png().toBuffer()
+    clipboard.writeImage(nativeImage.createFromBuffer(buffer))
+    return { ok: true }
+  } catch {
+    try {
+      clipboard.writeImage(nativeImage.createFromPath(filePath))
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  }
+})
+
+ipcMain.handle('image:copyRegion', async (_e, { filePath, x, y, width, height }: { filePath: string; x: number; y: number; width: number; height: number }) => {
+  try {
+    const sharp = (await import('sharp')).default
+    const buffer = await sharp(filePath)
+      .extract({ left: x, top: y, width, height })
+      .png()
+      .toBuffer()
+    clipboard.writeImage(nativeImage.createFromBuffer(buffer))
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
 
 ipcMain.handle('app:version', () => app.getVersion())
 
