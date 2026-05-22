@@ -433,6 +433,15 @@ body{
 }
 
 /* QUEUE */
+.queue-scroll{
+  max-height: 248px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--silver-6) var(--ink-0);
+  margin: 0 -2px;
+  padding: 0 2px;
+}
 .queue{
   display:grid; grid-template-columns: repeat(4, 1fr);
   gap: 4px;
@@ -443,11 +452,18 @@ body{
   border: 1px solid var(--line-1);
   position: relative;
   cursor: pointer;
+  overflow: hidden;
 }
+.queue-cell:hover{ border-color: var(--silver-5); }
 .queue-cell.current{ border: 1px solid var(--wine-3); box-shadow: 0 0 0 1px var(--wine-3), 0 0 12px rgba(168,45,68,0.4); }
-.queue-cell.kept::after{ content:"✓"; position:absolute; top:2px; right:4px; color: #98c486; font-size: 10px; font-family: var(--mono); }
+.queue-cell.kept::after{ content:"✓"; position:absolute; top:2px; right:4px; color: #98c486; font-size: 10px; font-family: var(--mono); z-index:1; }
 .queue-cell.rejected{ opacity: 0.4; }
-.queue-cell.rejected::after{ content:"×"; position:absolute; top:2px; right:4px; color: var(--wine-3); font-size: 12px; font-family: var(--mono); }
+.queue-cell.rejected::after{ content:"×"; position:absolute; top:2px; right:4px; color: var(--wine-3); font-size: 12px; font-family: var(--mono); z-index:1; }
+.queue-cell-placeholder{
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg, #1a141d 0 4px, #16111a 4px 8px);
+  opacity: 0.5;
+}
 
 /* STATUS BAR */
 .statusbar{

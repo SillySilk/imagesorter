@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useApp } from '../context/AppContext'
 import { formatBytes, formatDate } from '../utils/formatters'
 
@@ -11,14 +11,20 @@ interface Metadata {
   color_space?: string
 }
 
+const THUMB_BATCH = 20
+
 export default function Inspector() {
   const { state, dispatch } = useApp()
   const { files, currentIndex, dispositions, config } = state
   const currentFile = files[currentIndex] || null
+
   const [meta, setMeta] = useState<Metadata | null>(null)
   const [histogram, setHistogram] = useState<number[] | null>(null)
-  const [thumbnails, setThumbnails] = useState<string[]>([])
+  const [thumbMap, setThumbMap] = useState<Map<number, string>>(new Map())
+
   const histoRef = useRef<HTMLCanvasElement>(null)
+  const currentCellRef = useRef<HTMLDivElement>(null)
+  const loadGenRef = useRef(0)  // increments on each new load run to cancel stale ones
 
   // Load metadata when file changes
   useEffect(() => {
@@ -33,19 +39,46 @@ export default function Inspector() {
     return () => { cancelled = true }
   }, [currentFile?.full_path])
 
-  // Load queue thumbnails
+  // Load all thumbnails progressively when file list changes
   useEffect(() => {
-    const start = Math.max(0, currentIndex - 2)
-    const end = Math.min(files.length, start + 12)
-    const slice = files.slice(start, end)
-    Promise.all(
-      slice.map(f =>
-        f.type === 'image'
-          ? window.api.image.thumbnail({ filePath: f.full_path, width: 60, height: 60 })
-          : Promise.resolve('')
+    setThumbMap(new Map())
+    if (files.length === 0) return
+
+    const gen = ++loadGenRef.current
+
+    const loadBatch = async (start: number) => {
+      if (loadGenRef.current !== gen) return
+      const batch = files.slice(start, start + THUMB_BATCH)
+      if (batch.length === 0) return
+
+      const results = await Promise.all(
+        batch.map((f, offset) =>
+          f.type === 'image'
+            ? window.api.image.thumbnail({ filePath: f.full_path, width: 64, height: 64 })
+                .then(t => ({ idx: start + offset, thumb: t }))
+                .catch(() => ({ idx: start + offset, thumb: '' }))
+            : Promise.resolve({ idx: start + offset, thumb: '' })
+        )
       )
-    ).then(setThumbnails).catch(() => {})
-  }, [currentIndex, files.length])
+
+      if (loadGenRef.current !== gen) return
+      setThumbMap(prev => {
+        const next = new Map(prev)
+        results.forEach(({ idx, thumb }) => next.set(idx, thumb))
+        return next
+      })
+
+      // continue with next batch
+      loadBatch(start + THUMB_BATCH)
+    }
+
+    loadBatch(0)
+  }, [files])  // reset and reload whenever file list changes
+
+  // Scroll current cell into view when index changes
+  useEffect(() => {
+    currentCellRef.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' as ScrollBehavior })
+  }, [currentIndex])
 
   // Draw histogram
   useEffect(() => {
@@ -69,9 +102,6 @@ export default function Inspector() {
   }, [histogram])
 
   const disposition = currentFile ? dispositions[currentFile.full_path] : null
-
-  const queueStart = Math.max(0, currentIndex - 2)
-  const queueFiles = files.slice(queueStart, queueStart + 12)
 
   return (
     <aside className="inspector">
@@ -128,34 +158,36 @@ export default function Inspector() {
       </div>
 
       <div className="inspector-section">
-        <h4>Queue <span className="num">{currentIndex + 1} / {files.length}</span></h4>
-        <div className="queue">
-          {queueFiles.map((f, i) => {
-            const absIdx = queueStart + i
-            const isCurrent = absIdx === currentIndex
-            const disp = dispositions[f.full_path]
-            const thumb = thumbnails[i]
-            return (
-              <div
-                key={f.full_path}
-                className={`queue-cell${isCurrent ? ' current' : disp === 'kept' ? ' kept' : disp === 'rejected' ? ' rejected' : ''}`}
-                title={f.filename}
-                style={{ cursor: 'pointer' }}
-                onClick={() => dispatch({ type: 'SET_INDEX', payload: absIdx })}
-              >
-                {thumb && (
-                  <img
-                    src={`data:image/png;base64,${thumb}`}
-                    alt=""
-                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                )}
-              </div>
-            )
-          })}
-          {Array(Math.max(0, 12 - queueFiles.length)).fill(0).map((_, i) => (
-            <div key={`empty-${i}`} className="queue-cell" />
-          ))}
+        <h4>Queue <span className="num">{files.length > 0 ? `${currentIndex + 1} / ${files.length}` : '—'}</span></h4>
+        <div className="queue-scroll">
+          <div className="queue">
+            {files.map((f, i) => {
+              const isCurrent = i === currentIndex
+              const disp = dispositions[f.full_path]
+              const thumb = thumbMap.get(i)
+              return (
+                <div
+                  key={f.full_path}
+                  ref={isCurrent ? currentCellRef : null}
+                  className={`queue-cell${isCurrent ? ' current' : disp === 'kept' ? ' kept' : disp === 'rejected' ? ' rejected' : ''}`}
+                  title={f.filename}
+                  onClick={() => dispatch({ type: 'SET_INDEX', payload: i })}
+                >
+                  {thumb
+                    ? <img
+                        src={`data:image/png;base64,${thumb}`}
+                        alt=""
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    : <div className="queue-cell-placeholder" />
+                  }
+                </div>
+              )
+            })}
+            {files.length === 0 && Array(8).fill(0).map((_, i) => (
+              <div key={`empty-${i}`} className="queue-cell" />
+            ))}
+          </div>
         </div>
       </div>
 
