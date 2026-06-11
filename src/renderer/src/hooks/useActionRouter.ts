@@ -3,6 +3,12 @@ import { useApp } from '../context/AppContext'
 import { useLoadFolder } from './useLoadFolder'
 import type { Action } from '../../../main/config'
 
+/** Parent directory of a Windows or POSIX path. */
+function parentDir(p: string): string {
+  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
+  return i > 0 ? p.slice(0, i) : p
+}
+
 export function useActionRouter() {
   const { state, dispatch } = useApp()
   const { loadFolder, reloadCurrentFolder } = useLoadFolder()
@@ -18,12 +24,11 @@ export function useActionRouter() {
       case 'next': dispatch({ type: 'NEXT' }); break
       case 'previous': dispatch({ type: 'PREVIOUS' }); break
       case 'random': dispatch({ type: 'RANDOM' }); break
+      // s.zoom always holds the real on-screen scale (fit scale is published
+      // by the Canvas), so stepping from it works in both fit and zoom modes.
       case 'zoom_in': dispatch({ type: 'SET_ZOOM', payload: s.zoom * 1.25 }); break
       case 'zoom_out': dispatch({ type: 'SET_ZOOM', payload: s.zoom / 1.25 }); break
-      case 'fit_to_page':
-        dispatch({ type: 'SET_ZOOM', payload: 1 })
-        dispatch({ type: 'SET_PAN', payload: { x: 0, y: 0 } })
-        break
+      case 'fit_to_page': dispatch({ type: 'SET_FIT' }); break
       case 'keep':
         if (currentFile && s.config?.keep) {
           const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: s.config.keep })
@@ -35,20 +40,27 @@ export function useActionRouter() {
         break
       case 'reject':
         if (currentFile) {
-          if (s.config?.reject) {
-            const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: s.config.reject })
-            if (ok) {
-              dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'rejected' } })
-              if (s.config?.options?.auto_advance) dispatch({ type: 'NEXT' })
-            }
-          } else if (s.config?.options?.confirm_delete) {
-            const confirmed = await window.api.dialog.confirm({
-              title: 'Delete File',
-              message: `Permanently delete ${currentFile.filename}?`,
-              detail: 'No reject folder is configured.'
-            })
-            if (confirmed) {
-              await window.api.file.delete({ filePath: currentFile.full_path })
+          // Reject always MOVES (never deletes). When no reject folder is
+          // configured, auto-create a "Rejected" folder beside the image.
+          const destDir = s.config?.reject || `${parentDir(currentFile.full_path)}\\Rejected`
+          const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir })
+          if (ok) {
+            dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'rejected' } })
+            if (s.config?.options?.auto_advance) dispatch({ type: 'NEXT' })
+          }
+        }
+        break
+      case 'delete':
+        if (currentFile) {
+          // Permanent, irreversible deletion (distinct from reject).
+          const confirmed = !s.config?.options?.confirm_delete || await window.api.dialog.confirm({
+            title: 'Delete File',
+            message: `Permanently delete ${currentFile.filename}?`,
+            detail: 'This cannot be undone.'
+          })
+          if (confirmed) {
+            const res = await window.api.file.delete({ filePath: currentFile.full_path })
+            if (res.ok) {
               dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'rejected' } })
               if (s.config?.options?.auto_advance) dispatch({ type: 'NEXT' })
             }

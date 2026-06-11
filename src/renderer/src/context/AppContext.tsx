@@ -15,7 +15,11 @@ export interface AppState {
   files: FileInfo[]
   currentIndex: number
   mode: 'sort' | 'view'
+  /** Absolute display scale: 1.0 == 100% native pixels. */
   zoom: number
+  /** When true the image is auto-scaled to fit the frame; `zoom` holds the
+   * resolved fit scale so the readout always reflects what's on screen. */
+  fitMode: boolean
   panOffset: { x: number; y: number }
   railTab: 'browse' | 'sort' | 'film' | 'utils' | 'history'
   settingsOpen: boolean
@@ -31,6 +35,8 @@ type AppAction =
   | { type: 'SET_INDEX'; payload: number }
   | { type: 'SET_MODE'; payload: 'sort' | 'view' }
   | { type: 'SET_ZOOM'; payload: number }
+  | { type: 'SET_FIT_SCALE'; payload: number }
+  | { type: 'SET_FIT' }
   | { type: 'SET_PAN'; payload: { x: number; y: number } }
   | { type: 'SET_RAIL_TAB'; payload: AppState['railTab'] }
   | { type: 'OPEN_SETTINGS'; payload?: string }
@@ -48,6 +54,7 @@ const initialState: AppState = {
   currentIndex: 0,
   mode: 'view',
   zoom: 1,
+  fitMode: true,
   panOffset: { x: 0, y: 0 },
   railTab: 'sort',
   settingsOpen: false,
@@ -68,11 +75,17 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'SET_FILES':
       return { ...state, files: action.payload, currentIndex: 0, dispositions: {} }
     case 'SET_INDEX':
-      return { ...state, currentIndex: Math.max(0, Math.min(action.payload, state.files.length - 1)), zoom: 1, panOffset: { x: 0, y: 0 } }
+      return { ...state, currentIndex: Math.max(0, Math.min(action.payload, state.files.length - 1)), zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
     case 'SET_MODE':
       return { ...state, mode: action.payload }
     case 'SET_ZOOM':
+      // User-initiated absolute zoom — leaves fit mode.
+      return { ...state, zoom: Math.max(0.1, Math.min(10, action.payload)), fitMode: false }
+    case 'SET_FIT_SCALE':
+      // Canvas reporting the resolved fit scale; stays in fit mode.
       return { ...state, zoom: Math.max(0.1, Math.min(10, action.payload)) }
+    case 'SET_FIT':
+      return { ...state, fitMode: true, panOffset: { x: 0, y: 0 } }
     case 'SET_PAN':
       return { ...state, panOffset: action.payload }
     case 'SET_RAIL_TAB':
@@ -89,17 +102,17 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, version: action.payload }
     case 'NEXT':
       return state.currentIndex < state.files.length - 1
-        ? { ...state, currentIndex: state.currentIndex + 1, zoom: 1, panOffset: { x: 0, y: 0 } }
+        ? { ...state, currentIndex: state.currentIndex + 1, zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
         : state
     case 'PREVIOUS':
       return state.currentIndex > 0
-        ? { ...state, currentIndex: state.currentIndex - 1, zoom: 1, panOffset: { x: 0, y: 0 } }
+        ? { ...state, currentIndex: state.currentIndex - 1, zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
         : state
     case 'RANDOM': {
       if (state.files.length <= 1) return state
       let idx = Math.floor(Math.random() * state.files.length)
       if (idx === state.currentIndex) idx = (idx + 1) % state.files.length
-      return { ...state, currentIndex: idx, zoom: 1, panOffset: { x: 0, y: 0 } }
+      return { ...state, currentIndex: idx, zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
     }
     default:
       return state

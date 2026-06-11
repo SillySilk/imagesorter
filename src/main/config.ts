@@ -3,7 +3,7 @@ import path from 'path'
 import { app } from 'electron'
 
 export type Action =
-  | 'keep' | 'reject' | 'next' | 'previous' | 'skip' | 'disabled'
+  | 'keep' | 'reject' | 'delete' | 'next' | 'previous' | 'skip' | 'disabled'
   | 'random' | 'zoom_in' | 'zoom_out' | 'fit_to_page' | 'context_menu'
 
 export interface ModeSettings {
@@ -63,7 +63,7 @@ export interface Config {
 }
 
 export const VALID_ACTIONS = new Set<Action>([
-  'keep', 'reject', 'next', 'previous', 'skip', 'disabled',
+  'keep', 'reject', 'delete', 'next', 'previous', 'skip', 'disabled',
   'random', 'zoom_in', 'zoom_out', 'fit_to_page', 'context_menu'
 ])
 
@@ -137,9 +137,9 @@ function deepMerge<T>(target: T, source: Partial<T>): T {
 function getConfigPath(): string {
   const userDataPath = path.join(app.getPath('userData'), 'culler_settings.json')
   const cwdPath = path.join(process.cwd(), 'culler_settings.json')
-  const oldAppPath = path.join('C:\\AI\\image sort', 'culler_settings.json')
+  // A culler_settings.json sitting next to the executable wins (portable mode);
+  // otherwise the app owns its config under userData (%APPDATA%\aperture).
   if (fs.existsSync(cwdPath)) return cwdPath
-  if (fs.existsSync(oldAppPath)) return oldAppPath
   return userDataPath
 }
 
@@ -256,17 +256,6 @@ export class ConfigManager {
         console.error('Config load error:', e)
         return structuredClone(DEFAULT_CONFIG)
       }
-    }
-
-    // Check old app location and migrate
-    const oldPath = path.join('C:\\AI\\image sort', 'culler_settings.json')
-    if (fs.existsSync(oldPath) && oldPath !== this.configPath) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(oldPath, 'utf-8'))
-        const migrated = migrate(raw)
-        this.save(migrated)
-        return migrated
-      } catch { /* ignore */ }
     }
 
     return structuredClone(DEFAULT_CONFIG)

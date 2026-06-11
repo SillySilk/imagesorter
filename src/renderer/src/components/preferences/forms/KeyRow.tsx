@@ -5,6 +5,7 @@ import { formatKey } from '../../../utils/formatters'
 const VALID_ACTIONS = [
   { value: 'keep', label: 'Keep' },
   { value: 'reject', label: 'Reject' },
+  { value: 'delete', label: 'Delete' },
   { value: 'next', label: 'Next' },
   { value: 'previous', label: 'Previous' },
   { value: 'skip', label: 'Skip' },

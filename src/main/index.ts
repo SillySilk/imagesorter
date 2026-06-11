@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage, net } from 'electron'
 import { join, extname } from 'path'
+import { pathToFileURL } from 'url'
 import { statSync } from 'fs'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
@@ -11,6 +12,17 @@ let configManager: ConfigManager
 const MEDIA_EXTS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp',
   '.svg', '.avif', '.heic', '.heif', '.mp4', '.webm', '.mov', '.avi', '.mkv'
+])
+
+// Formats Chromium can't decode natively but sharp can — transcode these to
+// PNG on the fly so they display in an <img>. (PSD/RAW are unsupported by
+// sharp and intentionally left to fail rather than fake support.)
+const TRANSCODE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff'])
+
+// The aperture:// scheme must be registered as privileged before app-ready so
+// it can stream video and act as a secure context for <img>/fetch.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'aperture', privileges: { secure: true, stream: true, bypassCSP: true, supportFetchAPI: true } }
 ])
 
 function extractFilePath(argv: string[]): string | null {
@@ -63,14 +75,21 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => { win.show(); win.maximize() })
 
-  // Custom protocol for serving local image/video files
-  protocol.registerFileProtocol('aperture', (request, callback) => {
-    const url = request.url.replace('aperture://', '')
-    try {
-      callback({ path: decodeURIComponent(url) })
-    } catch {
-      callback({ error: -2 })
+  // Custom protocol for serving local image/video files. HEIC/HEIF/TIFF are
+  // transcoded to PNG via sharp (with EXIF orientation applied); everything
+  // else is streamed straight from disk so Chromium handles it natively.
+  protocol.handle('aperture', async (request) => {
+    const filePath = decodeURIComponent(request.url.slice('aperture://'.length))
+    if (TRANSCODE_EXTS.has(extname(filePath).toLowerCase())) {
+      try {
+        const sharp = (await import('sharp')).default
+        const buf = await sharp(filePath).rotate().png().toBuffer()
+        return new Response(buf, { headers: { 'content-type': 'image/png' } })
+      } catch (e) {
+        console.warn('Transcode failed, serving raw:', filePath, e)
+      }
     }
+    return net.fetch(pathToFileURL(filePath).toString())
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
