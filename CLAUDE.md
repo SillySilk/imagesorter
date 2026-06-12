@@ -8,10 +8,10 @@ Everything lives in **`C:\AI\Aperture`** — source code, build tooling, git rep
 |------|---------|
 | `src/` | Source code (edits happen here) |
 | `out/` | electron-vite compile output |
-| `dist/win-unpacked/` | The packaged, runnable app (`Aperture.exe`) |
-| `Aperture.bat` | Root launcher — starts `dist\win-unpacked\Aperture.exe` |
+| `dist/win-unpacked/` | The packaged Electron app (the REAL `Aperture.exe` plus its DLLs/resources) |
+| `Aperture.exe` (root) | Launcher stub — forwards to `dist\win-unpacked\Aperture.exe`. Built from `launcher.cs` with the .NET Framework `csc.exe` (rebuild command in that file's header) |
 
-The user runs `dist\win-unpacked\Aperture.exe` (via `Aperture.bat` or file associations). Windows file associations (HKCU, ProgId `ApertureImageSuite`) point at that exe, so the packaged path must not move. `register-associations.ps1` re-registers associations if needed; electron-builder copies it next to the exe.
+The user launches the root `Aperture.exe`. The Electron exe cannot live in the root because it needs its DLLs, `.pak` files, and `resources\` beside it. Windows file associations (HKCU, ProgId `ApertureImageSuite`) point directly at `dist\win-unpacked\Aperture.exe`, so the packaged path must not move. `register-associations.ps1` re-registers associations if needed; electron-builder copies it next to the exe.
 
 ## Tech Stack
 
