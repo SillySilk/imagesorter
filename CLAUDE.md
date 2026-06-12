@@ -2,12 +2,16 @@
 
 ## Directory Structure
 
+Everything lives in **`C:\AI\Aperture`** — source code, build tooling, git repo, AND the runnable app. There is no separate deploy folder.
+
 | Path | Purpose |
 |------|---------|
-| `C:\AI\Aperture` | Source code, build tooling, git repo |
-| `C:\AI\Image Viewer App` | Final distributed app (what the user actually runs) |
+| `src/` | Source code (edits happen here) |
+| `out/` | electron-vite compile output |
+| `dist/win-unpacked/` | The packaged, runnable app (`Aperture.exe`) |
+| `Aperture.bat` | Root launcher — starts `dist\win-unpacked\Aperture.exe` |
 
-These are **two separate directories**. Edits happen in `C:\AI\Aperture\src`. The built output must be explicitly deployed to `C:\AI\Image Viewer App` before changes are visible in the running app.
+The user runs `dist\win-unpacked\Aperture.exe` (via `Aperture.bat` or file associations). Windows file associations (HKCU, ProgId `ApertureImageSuite`) point at that exe, so the packaged path must not move. `register-associations.ps1` re-registers associations if needed; electron-builder copies it next to the exe.
 
 ## Tech Stack
 
@@ -21,19 +25,18 @@ Key source paths:
 - `src/renderer/src/context/AppContext.tsx` — global state
 - `src/main/` — Electron main process
 
-## Build & Deploy Workflow
+## Build & Ship Workflow
 
 Use the `/ship-aperture` skill — it handles everything in order:
 
 1. `electron-vite build` — compiles source to `out/`
-2. `electron-builder --dir` — packages to `dist/win-unpacked/`
-3. Stops any running Aperture process
-4. `robocopy` deploys `dist/win-unpacked/` → `C:\AI\Image Viewer App`
-5. Commits and pushes to GitHub
+2. Stops any running Aperture process
+3. `electron-builder --dir` — packages to `dist/win-unpacked/` (this IS the app the user runs; no copy step)
+4. Commits and pushes to GitHub
 
-**Never manually copy files.** Always go through the skill to keep the deploy consistent.
+**Never deploy or copy the build anywhere else.** The old `C:\AI\Image Viewer App` deploy folder is retired (removed 2026-06-12).
 
 ## GitHub
 
-Remote: `https://github.com/SillySilk/imagesorter.git`  
+Remote: `https://github.com/SillySilk/imagesorter.git`
 Branch: `main`

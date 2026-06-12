@@ -1,3 +1,2 @@
 @echo off
-cd /d "%~dp0"
-start "" "node_modules\electron\dist\electron.exe" .
+start "" "%~dp0dist\win-unpacked\Aperture.exe"
