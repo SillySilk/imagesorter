@@ -6,3 +6,5 @@ dist-electron/
 .DS_Store
 Thumbs.db
 culler_settings.json
+.certs/
+*.pfx

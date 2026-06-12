@@ -44,6 +44,13 @@ export default function Canvas() {
   effectiveScaleRef.current = effectiveScale
   const panOffsetRef = useRef(panOffset)
   panOffsetRef.current = panOffset
+  const naturalSizeRef = useRef(naturalSize)
+  naturalSizeRef.current = naturalSize
+  const frameSizeRef = useRef(frameSize)
+  frameSizeRef.current = frameSize
+  // Drag-to-pan state (active when the image is zoomed past the frame).
+  const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
 
   // Track the frame's pixel size so fit scale stays correct on window resize.
   useEffect(() => {
@@ -66,6 +73,23 @@ export default function Canvas() {
       dispatch({ type: 'SET_FIT_SCALE', payload: fitScale })
     }
   }, [fitMode, fitScale, zoom, dispatch])
+
+  // How far the image overflows the frame on each axis (0 when it fits). The
+  // image is centered, so it can pan by ±overflow/2 before an edge hits the
+  // frame edge.
+  const overflowX = naturalSize ? Math.max(0, naturalSize.w * effectiveScale - frameSize.w) : 0
+  const overflowY = naturalSize ? Math.max(0, naturalSize.h * effectiveScale - frameSize.h) : 0
+  const isPannable = overflowX > 0 || overflowY > 0
+
+  // Keep the pan offset within bounds when the scale or frame changes (e.g.
+  // zooming out should never leave the image stranded off-center).
+  useEffect(() => {
+    const cx = Math.max(-overflowX / 2, Math.min(overflowX / 2, panOffset.x))
+    const cy = Math.max(-overflowY / 2, Math.min(overflowY / 2, panOffset.y))
+    if (cx !== panOffset.x || cy !== panOffset.y) {
+      dispatch({ type: 'SET_PAN', payload: { x: cx, y: cy } })
+    }
+  }, [overflowX, overflowY, panOffset.x, panOffset.y, dispatch])
 
   // Exit selection mode on Escape
   useEffect(() => {
@@ -169,6 +193,41 @@ export default function Canvas() {
     }
   }, [showCopyFeedback])
 
+  // Drag-to-pan handlers (image-frame level, used only when not selecting a
+  // crop region). Pointer capture keeps tracking the drag outside the frame.
+  const handlePanDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    const ns = naturalSizeRef.current
+    const fs = frameSizeRef.current
+    const S = effectiveScaleRef.current
+    if (!ns) return
+    if (ns.w * S - fs.w <= 0 && ns.h * S - fs.h <= 0) return // nothing to pan
+    e.currentTarget.setPointerCapture(e.pointerId)
+    panStartRef.current = { x: e.clientX, y: e.clientY, panX: panOffsetRef.current.x, panY: panOffsetRef.current.y }
+    setIsPanning(true)
+  }, [])
+
+  const handlePanMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const st = panStartRef.current
+    if (!st) return
+    const ns = naturalSizeRef.current
+    const fs = frameSizeRef.current
+    const S = effectiveScaleRef.current
+    if (!ns) return
+    const ox = Math.max(0, ns.w * S - fs.w)
+    const oy = Math.max(0, ns.h * S - fs.h)
+    const nx = Math.max(-ox / 2, Math.min(ox / 2, st.panX + (e.clientX - st.x)))
+    const ny = Math.max(-oy / 2, Math.min(oy / 2, st.panY + (e.clientY - st.y)))
+    dispatch({ type: 'SET_PAN', payload: { x: nx, y: ny } })
+  }, [dispatch])
+
+  const handlePanUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panStartRef.current) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    panStartRef.current = null
+    setIsPanning(false)
+  }, [])
+
   const handleDock = useCallback((action: string) => {
     switch (action) {
       case 'prev': dispatch({ type: 'PREVIOUS' }); break
@@ -252,7 +311,15 @@ export default function Canvas() {
         <div
           className="image-frame"
           ref={imageFrameRef}
-          style={imageUrl ? { background: '#06040a', overflow: 'hidden' } : undefined}
+          onPointerDown={!selectionMode ? handlePanDown : undefined}
+          onPointerMove={!selectionMode ? handlePanMove : undefined}
+          onPointerUp={!selectionMode ? handlePanUp : undefined}
+          onPointerCancel={!selectionMode ? handlePanUp : undefined}
+          style={imageUrl ? {
+            background: '#06040a',
+            overflow: 'hidden',
+            cursor: isPanning ? 'grabbing' : (!selectionMode && isPannable ? 'grab' : 'default')
+          } : undefined}
         >
           {imageUrl ? (
             <>
@@ -324,15 +391,15 @@ export default function Canvas() {
         <button className="dock-btn" title="Random" onClick={() => handleDock('random')}><IcShuffle /></button>
         <button className="dock-btn" title="Rate"><IcStar /></button>
         <div className="dock-zoom">
-          <IcZoomOut style={{ width: 13, height: 13, cursor: 'pointer' }} onClick={() => handleDock('zoom_out')} />
+          <button className="dock-zoom-btn" title="Zoom out (−)" onClick={() => handleDock('zoom_out')}><IcZoomOut /></button>
           <span
-            style={{ cursor: 'pointer' }}
+            className="dock-zoom-readout"
             title={fitMode ? 'Click for 100%' : 'Click to fit'}
             onClick={() => dispatch(fitMode ? { type: 'SET_ZOOM', payload: 1 } : { type: 'SET_FIT' })}
           >
             {fitMode ? `Fit · ${Math.round(effectiveScale * 100)}%` : `${Math.round(effectiveScale * 100)}%`}
           </span>
-          <IcZoomIn style={{ width: 13, height: 13, cursor: 'pointer' }} onClick={() => handleDock('zoom_in')} />
+          <button className="dock-zoom-btn" title="Zoom in (+)" onClick={() => handleDock('zoom_in')}><IcZoomIn /></button>
         </div>
         <button className="dock-btn" title="Fit to Page" onClick={() => handleDock('fit')}><IcFit /></button>
         <div className="dock-divider"></div>

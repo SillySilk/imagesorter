@@ -25,6 +25,14 @@ win:
       arch:
         - x64
   icon: resources/icon.ico
+  # Local self-signed code signing (see .certs/, gitignored).
+  # The PFX password is NOT a meaningful secret: a self-signed cert only
+  # asserts "PanPDX" and is forgeable by anyone. For distribution to other
+  # machines, replace with a purchased OV/EV certificate.
+  signtoolOptions:
+    certificateFile: .certs/aperture-codesign.pfx
+    certificatePassword: aperture-local-signing
+    rfc3161TimeStampServer: http://timestamp.digicert.com
 
 nsis:
   oneClick: true
