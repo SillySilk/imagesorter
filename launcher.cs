@@ -5,12 +5,24 @@
 // Rebuild (only needed if this file changes):
 //   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe
 //     /win32icon:resources\icon.ico /out:Aperture.exe launcher.cs
+//
+// The assembly attributes below become the exe's Win32 version resource, so
+// Windows shows it as "Aperture" (not a blank/filename) with the right icon in
+// the shell, taskbar, and "Open with" dialog.
 
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
+
+[assembly: AssemblyTitle("Aperture")]
+[assembly: AssemblyProduct("Aperture")]
+[assembly: AssemblyDescription("Aperture Image Suite")]
+[assembly: AssemblyCompany("PanPDX")]
+[assembly: AssemblyVersion("0.7.0.0")]
+[assembly: AssemblyFileVersion("0.7.0.0")]
 
 class Launcher
 {
