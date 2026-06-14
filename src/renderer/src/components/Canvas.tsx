@@ -242,26 +242,21 @@ export default function Canvas() {
   }, [effectiveScale, dispatch])
 
   const handleKeep = useCallback(async () => {
-    if (!currentFile || !config?.keep) return
-    const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: config.keep })
-    if (ok) {
-      dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'kept' } })
-      if (config?.options?.auto_advance) dispatch({ type: 'NEXT' })
+    if (!currentFile) return
+    if (config?.keep) {
+      const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: config.keep })
+      if (!ok) return
     }
+    dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
   }, [currentFile, config, dispatch])
 
   const handleReject = useCallback(async () => {
     if (!currentFile) return
-    // Reject always MOVES (never deletes). With no reject folder configured,
-    // auto-create a "Rejected" folder beside the current image.
     const i = Math.max(currentFile.full_path.lastIndexOf('\\'), currentFile.full_path.lastIndexOf('/'))
     const parent = i > 0 ? currentFile.full_path.slice(0, i) : currentFile.full_path
     const destDir = config?.reject || `${parent}\\Rejected`
     const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir })
-    if (ok) {
-      dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'rejected' } })
-      if (config?.options?.auto_advance) dispatch({ type: 'NEXT' })
-    }
+    if (ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
   }, [currentFile, config, dispatch])
 
   const handleDelete = useCallback(async () => {

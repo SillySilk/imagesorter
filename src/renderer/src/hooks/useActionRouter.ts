@@ -30,29 +30,23 @@ export function useActionRouter() {
       case 'zoom_out': dispatch({ type: 'SET_ZOOM', payload: s.zoom / 1.25 }); break
       case 'fit_to_page': dispatch({ type: 'SET_FIT' }); break
       case 'keep':
-        if (currentFile && s.config?.keep) {
-          const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: s.config.keep })
-          if (ok) {
-            dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'kept' } })
-            if (s.config?.options?.auto_advance) dispatch({ type: 'NEXT' })
+        if (currentFile) {
+          if (s.config?.keep) {
+            const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: s.config.keep })
+            if (!ok) break
           }
+          dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
         }
         break
       case 'reject':
         if (currentFile) {
-          // Reject always MOVES (never deletes). When no reject folder is
-          // configured, auto-create a "Rejected" folder beside the image.
           const destDir = s.config?.reject || `${parentDir(currentFile.full_path)}\\Rejected`
           const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir })
-          if (ok) {
-            dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'rejected' } })
-            if (s.config?.options?.auto_advance) dispatch({ type: 'NEXT' })
-          }
+          if (ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
         }
         break
       case 'delete':
         if (currentFile) {
-          // Permanent, irreversible deletion (distinct from reject).
           const confirmed = !s.config?.options?.confirm_delete || await window.api.dialog.confirm({
             title: 'Delete File',
             message: `Permanently delete ${currentFile.filename}?`,
@@ -60,10 +54,7 @@ export function useActionRouter() {
           })
           if (confirmed) {
             const res = await window.api.file.delete({ filePath: currentFile.full_path })
-            if (res.ok) {
-              dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'rejected' } })
-              if (s.config?.options?.auto_advance) dispatch({ type: 'NEXT' })
-            }
+            if (res.ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
           }
         }
         break
