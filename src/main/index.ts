@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage, net } from 'electron'
-import { join, extname } from 'path'
+import { join, extname, basename, dirname } from 'path'
 import { pathToFileURL } from 'url'
 import { statSync } from 'fs'
+import { copyFile as fsCopyFile } from 'fs/promises'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
 import { moveFile, copyFile, deleteFile } from './fileOps'
@@ -131,6 +132,53 @@ ipcMain.handle('dialog:openFolder', async () => {
   return result.canceled ? null : result.filePaths[0]
 })
 
+ipcMain.handle('dialog:saveAs', async (_e, { filePath }: { filePath: string }) => {
+  const ext = extname(filePath)
+  const base = basename(filePath, ext)
+  const result = await dialog.showSaveDialog({
+    defaultPath: join(dirname(filePath), base + '_copy' + ext),
+    filters: [
+      { name: 'JPEG', extensions: ['jpg', 'jpeg'] },
+      { name: 'PNG', extensions: ['png'] },
+      { name: 'WebP', extensions: ['webp'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  })
+  if (result.canceled || !result.filePath) return { ok: false }
+  const destExt = extname(result.filePath).toLowerCase()
+  const srcExt = ext.toLowerCase()
+  try {
+    const sameFormat = destExt === srcExt || (new Set([destExt, srcExt]).size === 1)
+      || (destExt === '.jpg' && srcExt === '.jpeg') || (destExt === '.jpeg' && srcExt === '.jpg')
+    if (sameFormat) {
+      await fsCopyFile(filePath, result.filePath)
+    } else {
+      const sharp = (await import('sharp')).default
+      await sharp(filePath).rotate().toFile(result.filePath)
+    }
+    return { ok: true, destPath: result.filePath }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
+ipcMain.handle('window:print', async (_e, { filePath }: { filePath: string }) => {
+  const win = BrowserWindow.getFocusedWindow()
+  if (!win) return { ok: false }
+  try {
+    const sharp = (await import('sharp')).default
+    const buf = await sharp(filePath).rotate().png().toBuffer()
+    const b64 = buf.toString('base64')
+    const html = `<!DOCTYPE html><html><head><style>*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;width:100vw;height:100vh;background:#fff}img{max-width:100%;max-height:100%;object-fit:contain}</style></head><body><img src="data:image/png;base64,${b64}"></body></html>`
+    const printWin = new BrowserWindow({ show: false, parent: win, webPreferences: { sandbox: false } })
+    await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    printWin.webContents.print({}, () => printWin.close())
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
 ipcMain.handle('dialog:openFile', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile'],
@@ -179,6 +227,15 @@ ipcMain.handle('shell:contextMenu', (_e, { filePath }: { filePath: string }) => 
   const win = BrowserWindow.getFocusedWindow()
   if (!win) return
   const menu = Menu.buildFromTemplate([
+    {
+      label: 'Reject (Move to Reject folder)',
+      click: () => win.webContents.send('canvas:action', { type: 'reject' })
+    },
+    {
+      label: 'Delete Permanently',
+      click: () => win.webContents.send('canvas:action', { type: 'delete' })
+    },
+    { type: 'separator' },
     {
       label: 'Show in Explorer',
       click: () => shell.showItemInFolder(filePath)

@@ -42,6 +42,7 @@ type AppAction =
   | { type: 'OPEN_SETTINGS'; payload?: string }
   | { type: 'CLOSE_SETTINGS' }
   | { type: 'SET_DISPOSITION'; payload: { path: string; disposition: Disposition } }
+  | { type: 'REMOVE_FILE'; payload: string }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_VERSION'; payload: string }
   | { type: 'NEXT' }
@@ -96,6 +97,13 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, settingsOpen: false }
     case 'SET_DISPOSITION':
       return { ...state, dispositions: { ...state.dispositions, [action.payload.path]: action.payload.disposition } }
+    case 'REMOVE_FILE': {
+      const newFiles = state.files.filter(f => f.full_path !== action.payload)
+      const newDisps = { ...state.dispositions }
+      delete newDisps[action.payload]
+      const newIndex = Math.min(state.currentIndex, Math.max(0, newFiles.length - 1))
+      return { ...state, files: newFiles, currentIndex: newIndex, dispositions: newDisps, zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
+    }
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload }
     case 'SET_VERSION':

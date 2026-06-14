@@ -264,6 +264,31 @@ export default function Canvas() {
     }
   }, [currentFile, config, dispatch])
 
+  const handleDelete = useCallback(async () => {
+    if (!currentFile) return
+    const confirmed = await window.api.dialog.confirm({
+      title: 'Delete File',
+      message: `Permanently delete "${currentFile.filename}"?`,
+      detail: 'This action cannot be undone.'
+    })
+    if (!confirmed) return
+    const { ok } = await window.api.file.delete({ filePath: currentFile.full_path })
+    if (ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
+  }, [currentFile, dispatch])
+
+  // Refs so the canvas:action listener (registered once) always calls the latest handlers
+  const handleRejectRef = useRef(handleReject)
+  handleRejectRef.current = handleReject
+  const handleDeleteRef = useRef(handleDelete)
+  handleDeleteRef.current = handleDelete
+
+  useEffect(() => {
+    window.api.app.onCanvasAction(({ type }) => {
+      if (type === 'reject') handleRejectRef.current()
+      else if (type === 'delete') handleDeleteRef.current()
+    })
+  }, [])
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (currentFile) window.api.shell.contextMenu({ filePath: currentFile.full_path })

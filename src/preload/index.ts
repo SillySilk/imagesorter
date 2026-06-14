@@ -13,6 +13,8 @@ const api = {
   dialog: {
     openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFile'),
     openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
+    saveAs: (opts: { filePath: string }): Promise<{ ok: boolean; destPath?: string; error?: string }> =>
+      ipcRenderer.invoke('dialog:saveAs', opts),
     confirm: (opts: { title: string; message: string; detail?: string }): Promise<boolean> =>
       ipcRenderer.invoke('dialog:confirm', opts)
   },
@@ -51,13 +53,18 @@ const api = {
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
-    close: () => ipcRenderer.invoke('window:close')
+    close: () => ipcRenderer.invoke('window:close'),
+    print: (opts: { filePath: string }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('window:print', opts)
   },
   app: {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     getPendingFile: (): Promise<string | null> => ipcRenderer.invoke('app:getPendingFile'),
     onOpenFile: (callback: (filePath: string) => void): void => {
       ipcRenderer.on('app:openFile', (_event, filePath: string) => callback(filePath))
+    },
+    onCanvasAction: (callback: (payload: { type: string }) => void): void => {
+      ipcRenderer.on('canvas:action', (_event, payload: { type: string }) => callback(payload))
     }
   }
 }
