@@ -289,11 +289,6 @@ export default function Canvas() {
     })
   }, [])
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    if (currentFile) window.api.shell.contextMenu({ filePath: currentFile.full_path })
-  }, [currentFile])
-
   const handleFullscreen = () => {
     if (!document.fullscreenElement) containerRef.current?.requestFullscreen()
     else document.exitFullscreen()
@@ -303,7 +298,7 @@ export default function Canvas() {
   const imageUrl = currentFile ? `aperture://${encodeURIComponent(currentFile.full_path)}` : null
 
   return (
-    <div className="canvas" ref={containerRef} onContextMenu={handleContextMenu}>
+    <div className="canvas" ref={containerRef}>
       <span className="corner-tr"></span>
       <span className="corner-bl"></span>
 

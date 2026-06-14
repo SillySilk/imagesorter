@@ -75,6 +75,7 @@ function createWindow(): void {
   })
 
   win.on('ready-to-show', () => { win.show(); win.maximize() })
+  win.webContents.on('context-menu', (e) => { e.preventDefault() })
 
   // Custom protocol for serving local image/video files. HEIC/HEIF/TIFF are
   // transcoded to PNG via sharp (with EXIF orientation applied); everything
