@@ -189,6 +189,27 @@ body{
 .win-controls .max{ background: #4a4234; }
 .win-controls .close{ background: var(--wine-5); }
 
+.titlebar-open-btns{ display:flex; gap:4px; padding-left:14px; align-items:center; }
+.titlebar-open-btns button{
+  display:flex; align-items:center; gap:5px;
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.titlebar-open-btns button:hover{
+  color: var(--text-1);
+  border-color: var(--line-wine);
+  background: rgba(168,45,68,0.07);
+}
+
 /* RAIL */
 .rail{
   background: linear-gradient(180deg, #100b13 0%, #08060a 100%);

@@ -11,6 +11,7 @@ const api = {
     validActions: (): Promise<string[]> => ipcRenderer.invoke('config:valid-actions')
   },
   dialog: {
+    openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFile'),
     openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
     confirm: (opts: { title: string; message: string; detail?: string }): Promise<boolean> =>
       ipcRenderer.invoke('dialog:confirm', opts)

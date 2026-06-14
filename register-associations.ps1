@@ -1,14 +1,27 @@
 # Registers Aperture as a file handler for images and videos.
-# Run once from the same folder as Aperture.exe (root repo folder or
-# dist\win-unpacked — both contain an Aperture.exe).
+# Run from the repo root OR from dist\win-unpacked.
 # Re-run with -Unregister to remove associations.
+#
+# IMPORTANT: associations MUST target the REAL Electron exe in
+# dist\win-unpacked\Aperture.exe — NOT the root forwarding stub. The root
+# Aperture.exe just spawns the real app and exits immediately; Windows'
+# "Open with" rejects an instantly-exiting process as a file handler and
+# bounces back to the picker (it won't let you set it as default). Only the
+# real, persistent Electron exe works as a handler. The root stub is for
+# manually double-clicking to start the app, not for file associations.
 
 param([switch]$Unregister)
 
-$ExePath = Join-Path $PSScriptRoot "Aperture.exe"
-if (-not (Test-Path $ExePath)) {
-    Write-Error "Aperture.exe not found at: $ExePath"
-    Write-Host "Run this script from the same folder as Aperture.exe."
+# Prefer the real Electron exe; fall back to the local one if we're already
+# running from inside dist\win-unpacked.
+$real = Join-Path $PSScriptRoot "dist\win-unpacked\Aperture.exe"
+$here = Join-Path $PSScriptRoot "Aperture.exe"
+if (Test-Path $real) {
+    $ExePath = $real
+} elseif (Test-Path $here) {
+    $ExePath = $here   # running from within dist\win-unpacked
+} else {
+    Write-Error "Real Aperture.exe not found. Build the app first (/ship-aperture)."
     pause; exit 1
 }
 
@@ -76,11 +89,32 @@ if ($Unregister) {
         Set-ItemProperty -Path "$appPath\SupportedTypes" -Name $ext -Value ""
     }
 
+    # --- 4. Capabilities + RegisteredApplications ---
+    # These make Aperture appear in Settings > Default Apps and in the
+    # "Set defaults by app" list. Without them Windows never shows Aperture
+    # as a named app even if the ProgId and UserChoice are both correct.
+    $capPath = "HKCU:\Software\Aperture\Capabilities"
+    New-Item -Path $capPath -Force | Out-Null
+    Set-ItemProperty -Path $capPath -Name "ApplicationName"        -Value $AppName
+    Set-ItemProperty -Path $capPath -Name "ApplicationDescription" -Value "Fast image and video viewer"
+    Set-ItemProperty -Path $capPath -Name "ApplicationIcon"        -Value "`"$ExePath`",0"
+
+    New-Item -Path "$capPath\FileAssociations" -Force | Out-Null
+    foreach ($ext in $Extensions) {
+        Set-ItemProperty -Path "$capPath\FileAssociations" -Name $ext -Value $ProgId
+    }
+
+    # RegisteredApplications: the single key that tells Windows "Aperture is an app"
+    New-Item -Path "HKCU:\Software\RegisteredApplications" -Force | Out-Null
+    Set-ItemProperty -Path "HKCU:\Software\RegisteredApplications" -Name $AppName -Value "Software\Aperture\Capabilities"
+
     Write-Host "Aperture registered as a file handler for images and videos."
+    Write-Host "Aperture added to RegisteredApplications (will appear in Default Apps)."
     Write-Host ""
     Write-Host "To set Aperture as the DEFAULT for a type (Windows protects this"
     Write-Host "setting, so it must be confirmed in the UI once per type):"
-    Write-Host "  Right-click an image > Open with > Choose another app"
+    Write-Host "  Settings > Apps > Default apps > search 'Aperture', then assign types."
+    Write-Host "  Or: right-click an image > Open with > Choose another app"
     Write-Host "  > pick Aperture > check 'Always use this app' > OK."
 }
 

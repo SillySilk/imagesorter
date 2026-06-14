@@ -131,6 +131,14 @@ ipcMain.handle('dialog:openFolder', async () => {
   return result.canceled ? null : result.filePaths[0]
 })
 
+ipcMain.handle('dialog:openFile', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Images & Videos', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'tiff', 'tif', 'bmp', 'avif', 'heic', 'heif', 'mp4', 'webm', 'mov', 'avi', 'mkv'] }]
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
 ipcMain.handle('dialog:confirm', async (_e, { title, message, detail }: { title: string; message: string; detail?: string }) => {
   const win = BrowserWindow.getFocusedWindow()
   const result = await dialog.showMessageBox(win!, {

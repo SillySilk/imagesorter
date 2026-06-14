@@ -1,9 +1,14 @@
 import React from 'react'
 import { useApp } from '../context/AppContext'
+import { useLoadFile } from '../hooks/useLoadFile'
+import { useLoadFolder } from '../hooks/useLoadFolder'
+import { IcFile, IcFolder } from './Icons'
 
 export default function TitleBar() {
   const { state, dispatch } = useApp()
   const { mode, files, currentIndex, config } = state
+  const { loadFile } = useLoadFile()
+  const { loadFolder } = useLoadFolder()
 
   const srcName = config?.src ? config.src.split(/[\\/]/).pop() : null
   const frameInfo = files.length > 0 ? `${srcName || 'folder'} · ${files.length} frames` : null
@@ -16,6 +21,17 @@ export default function TitleBar() {
           <div className="brand-name">Aper<span className="accent">ture</span></div>
           <div className="brand-tag">Image Suite · v{state.version}</div>
         </div>
+      </div>
+
+      <div className="titlebar-open-btns" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <button onClick={loadFile} title="Open a single image or video file">
+          <IcFile width={12} height={12} />
+          Open File
+        </button>
+        <button onClick={() => loadFolder()} title="Open a folder of images">
+          <IcFolder width={12} height={12} />
+          Open Folder
+        </button>
       </div>
 
       <div className="titlebar-spacer"></div>
