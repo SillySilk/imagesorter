@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage, net } from 'electron'
 import { join, extname, basename, dirname } from 'path'
 import { pathToFileURL } from 'url'
-import { statSync } from 'fs'
-import { copyFile as fsCopyFile } from 'fs/promises'
+import { statSync, createReadStream } from 'fs'
+import { copyFile as fsCopyFile, stat } from 'fs/promises'
+import { Readable } from 'stream'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
 import { moveFile, copyFile, deleteFile } from './fileOps'
@@ -19,6 +20,16 @@ const MEDIA_EXTS = new Set([
 // PNG on the fly so they display in an <img>. (PSD/RAW are unsupported by
 // sharp and intentionally left to fail rather than fake support.)
 const TRANSCODE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff'])
+
+// Video formats are served with HTTP range support so the player can seek.
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv'])
+const VIDEO_MIME: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska'
+}
 
 // The aperture:// scheme must be registered as privileged before app-ready so
 // it can stream video and act as a secure context for <img>/fetch.
@@ -82,7 +93,9 @@ function createWindow(): void {
   // else is streamed straight from disk so Chromium handles it natively.
   protocol.handle('aperture', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('aperture://'.length))
-    if (TRANSCODE_EXTS.has(extname(filePath).toLowerCase())) {
+    const ext = extname(filePath).toLowerCase()
+
+    if (TRANSCODE_EXTS.has(ext)) {
       try {
         const sharp = (await import('sharp')).default
         const buf = await sharp(filePath).rotate().png().toBuffer()
@@ -91,6 +104,58 @@ function createWindow(): void {
         console.warn('Transcode failed, serving raw:', filePath, e)
       }
     }
+
+    // Serve videos with HTTP range support. When the user scrubs the progress
+    // bar, Chromium issues a `Range: bytes=…` request for the target slice;
+    // without a 206/Accept-Ranges response the <video> is treated as
+    // non-seekable beyond what is already buffered. We answer ranges with a
+    // streamed partial response so seeking to any point works instantly.
+    if (VIDEO_EXTS.has(ext)) {
+      try {
+        const { size } = await stat(filePath)
+        const contentType = VIDEO_MIME[ext] || 'application/octet-stream'
+        const rangeHeader = request.headers.get('Range')
+        const match = rangeHeader && /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim())
+
+        if (match) {
+          let start = match[1] ? parseInt(match[1], 10) : 0
+          let end = match[2] ? parseInt(match[2], 10) : size - 1
+          if (isNaN(start)) start = 0
+          if (isNaN(end) || end >= size) end = size - 1
+          if (start > end || start >= size) {
+            return new Response(null, {
+              status: 416,
+              headers: { 'content-range': `bytes */${size}` }
+            })
+          }
+          const stream = createReadStream(filePath, { start, end })
+          return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
+            status: 206,
+            headers: {
+              'content-type': contentType,
+              'content-range': `bytes ${start}-${end}/${size}`,
+              'accept-ranges': 'bytes',
+              'content-length': String(end - start + 1)
+            }
+          })
+        }
+
+        // No range requested: serve the whole file but advertise range support
+        // so the player knows it can seek.
+        const stream = createReadStream(filePath)
+        return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
+          status: 200,
+          headers: {
+            'content-type': contentType,
+            'accept-ranges': 'bytes',
+            'content-length': String(size)
+          }
+        })
+      } catch (e) {
+        console.warn('Video serve failed, falling back:', filePath, e)
+      }
+    }
+
     return net.fetch(pathToFileURL(filePath).toString())
   })
 
