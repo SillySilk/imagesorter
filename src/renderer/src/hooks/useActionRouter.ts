@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, type RefObject } from 'react'
 import { useApp } from '../context/AppContext'
 import { useLoadFolder } from './useLoadFolder'
 import type { Action } from '../../../main/config'
@@ -9,10 +9,23 @@ function parentDir(p: string): string {
   return i > 0 ? p.slice(0, i) : p
 }
 
-export function useActionRouter() {
+/**
+ * Wire up keyboard / mouse / wheel actions.
+ *
+ * Keyboard actions are global (work anywhere in the window). Pointer and wheel
+ * actions are scoped to `targetRef` (the image canvas) so clicks and scrolls
+ * over the surrounding chrome — the Inspector, the Queue thumbnail grid, the
+ * rail — never trigger keep/reject/next. Without this scoping a click on a
+ * thumbnail would fire the sort-mode `keep` action on the current image, and a
+ * scroll over the grid would both scroll it and flood `NEXT` dispatches.
+ */
+export function useActionRouter(targetRef?: RefObject<HTMLElement | null>) {
   const { state, dispatch } = useApp()
   const { loadFolder, reloadCurrentFolder } = useLoadFolder()
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null)
+  // Timestamp guard so one fast wheel flick can't dispatch a burst of NEXTs
+  // faster than images can decode (which flashes the black frame).
+  const lastWheelNavRef = useRef(0)
   const stateRef = useRef(state)
   stateRef.current = state
 
@@ -141,20 +154,28 @@ export function useActionRouter() {
         executeAction(action)
         return
       }
+      // Throttle navigation so a single fast scroll over the image doesn't
+      // dispatch a burst of NEXT/PREVIOUS faster than the images can decode.
+      const now = Date.now()
+      if (now - lastWheelNavRef.current < 90) return
+      lastWheelNavRef.current = now
       const action = e.deltaY < 0 ? settings.wheel_mappings.wheel_up : settings.wheel_mappings.wheel_down
       executeAction(action)
     }
 
+    // Keyboard is global; pointer/wheel are scoped to the canvas so the
+    // surrounding UI (Queue grid, Inspector, rail) doesn't fire image actions.
+    const pointerTarget: HTMLElement | Document = targetRef?.current ?? document
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('mousedown', onMouseDown)
-    document.addEventListener('mouseup', onMouseUp)
-    document.addEventListener('wheel', onWheel, { passive: false })
+    pointerTarget.addEventListener('mousedown', onMouseDown as EventListener)
+    pointerTarget.addEventListener('mouseup', onMouseUp as EventListener)
+    pointerTarget.addEventListener('wheel', onWheel as EventListener, { passive: false })
 
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('mousedown', onMouseDown)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.removeEventListener('wheel', onWheel)
+      pointerTarget.removeEventListener('mousedown', onMouseDown as EventListener)
+      pointerTarget.removeEventListener('mouseup', onMouseUp as EventListener)
+      pointerTarget.removeEventListener('wheel', onWheel as EventListener)
     }
-  }, [dispatch, executeAction])
+  }, [dispatch, executeAction, targetRef])
 }

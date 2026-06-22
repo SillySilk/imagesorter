@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-function resolveConflict(dest: string): string {
+export function resolveConflict(dest: string): string {
   if (!fs.existsSync(dest)) return dest
   const dir = path.dirname(dest)
   const ext = path.extname(dest)
@@ -11,23 +11,48 @@ function resolveConflict(dest: string): string {
   return path.join(dir, `${base}_${i}${ext}`)
 }
 
-export function moveFile(src: string, destDir: string): { ok: boolean; dest?: string; error?: string } {
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+export async function moveFile(src: string, destDir: string, overwrite = true): Promise<{ ok: boolean; dest?: string; error?: string }> {
+  if (!fs.existsSync(src)) return { ok: false, error: 'Source file not found' }
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true })
+  // overwrite: replace a same-named file at the destination. Otherwise keep both
+  // by suffixing the name (_1, _2, …). rename and copyFileSync both overwrite an
+  // existing destination by default, so the plain target path is all we need.
+  const dest = overwrite
+    ? path.join(destDir, path.basename(src))
+    : resolveConflict(path.join(destDir, path.basename(src)))
+
+  // Fast path: same-volume rename. This succeeds even when the source is held
+  // open by the viewer (rename doesn't require delete access), so it's the
+  // common case for keep/reject within one drive.
   try {
-    if (!fs.existsSync(src)) return { ok: false, error: 'Source file not found' }
-    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true })
-    const dest = resolveConflict(path.join(destDir, path.basename(src)))
     fs.renameSync(src, dest)
     return { ok: true, dest }
-  } catch (e: unknown) {
-    // Cross-device rename fallback
+  } catch {
+    // Cross-volume (EXDEV) or otherwise un-renamable: copy, then delete the
+    // original. The delete can transiently fail with EPERM if the viewer still
+    // holds the file open (e.g. immediately after navigating to it), so retry
+    // briefly. If it never releases, roll back the copy so we don't leave a
+    // duplicate behind, and report failure.
     try {
-      const dest = resolveConflict(path.join(destDir, path.basename(src)))
       fs.copyFileSync(src, dest)
-      fs.unlinkSync(src)
-      return { ok: true, dest }
-    } catch (e2: unknown) {
-      return { ok: false, error: String(e2) }
+    } catch (e: unknown) {
+      return { ok: false, error: String(e) }
     }
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        fs.unlinkSync(src)
+        return { ok: true, dest }
+      } catch (e: unknown) {
+        if (attempt === 19) {
+          try { fs.unlinkSync(dest) } catch { /* leave nothing half-moved */ }
+          return { ok: false, error: String(e) }
+        }
+        await sleep(100)
+      }
+    }
+    return { ok: false, error: 'unreachable' }
   }
 }
 

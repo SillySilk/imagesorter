@@ -10,15 +10,25 @@ export interface ImageMetadata {
   color_space?: string
 }
 
+// Hand sharp the file's bytes (read once, handle closed immediately) rather
+// than a path. sharp(path) keeps the source file open while libvips processes
+// it, which on Windows blocks moving/deleting the displayed image — a
+// cross-volume "keep" then fails at unlink with EPERM. Operating on a Buffer
+// means the only file handle is this quick read, so the original is never
+// locked.
+async function loadSharp(filePath: string): Promise<import('sharp').Sharp> {
+  const sharp = (await import('sharp')).default
+  const buf = await fs.promises.readFile(filePath)
+  return sharp(buf)
+}
+
 export async function getImageMetadata(filePath: string): Promise<ImageMetadata> {
   const stat = fs.statSync(filePath)
   const created = stat.birthtime.toISOString().split('T')[0]
   const size = stat.size
 
-  // Dynamic import of sharp (native module, external from bundle)
   try {
-    const sharp = (await import('sharp')).default
-    const meta = await sharp(filePath).metadata()
+    const meta = await (await loadSharp(filePath)).metadata()
     return {
       width: meta.width || 0,
       height: meta.height || 0,
@@ -40,8 +50,7 @@ export async function getImageMetadata(filePath: string): Promise<ImageMetadata>
 
 export async function getThumbnail(filePath: string, width: number, height: number): Promise<string> {
   try {
-    const sharp = (await import('sharp')).default
-    const buf = await sharp(filePath)
+    const buf = await (await loadSharp(filePath))
       .resize(width, height, { fit: 'inside', withoutEnlargement: true })
       .png()
       .toBuffer()
@@ -53,8 +62,7 @@ export async function getThumbnail(filePath: string, width: number, height: numb
 
 export async function getHistogram(filePath: string): Promise<number[]> {
   try {
-    const sharp = (await import('sharp')).default
-    const { data } = await sharp(filePath).greyscale().raw().toBuffer({ resolveWithObject: true })
+    const { data } = await (await loadSharp(filePath)).greyscale().raw().toBuffer({ resolveWithObject: true })
     const counts = new Array(256).fill(0)
     for (let i = 0; i < data.length; i++) counts[data[i]]++
     return counts

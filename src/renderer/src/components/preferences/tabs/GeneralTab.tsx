@@ -88,6 +88,10 @@ export default function GeneralTab({ draft, onChange }: Props) {
       <Field label="Confirm Before Delete" desc="Show dialog when no reject folder is set">
         <Toggle value={draft.options.confirm_delete} onChange={v => onChange({ options: { ...draft.options, confirm_delete: v } })} />
       </Field>
+
+      <Field label="Replace Same-Named Files" desc="Overwrite when a file of the same name exists at the destination (off = keep both, appends _1, _2…)">
+        <Toggle value={draft.options.overwrite_existing} onChange={v => onChange({ options: { ...draft.options, overwrite_existing: v } })} />
+      </Field>
     </div>
   )
 }

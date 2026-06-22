@@ -39,7 +39,9 @@ const api = {
     copyToClipboard: (opts: { filePath: string }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('image:copyToClipboard', opts),
     copyRegion: (opts: { filePath: string; x: number; y: number; width: number; height: number }): Promise<{ ok: boolean; error?: string }> =>
-      ipcRenderer.invoke('image:copyRegion', opts)
+      ipcRenderer.invoke('image:copyRegion', opts),
+    saveRegion: (opts: { filePath: string; x: number; y: number; width: number; height: number; destDir: string }): Promise<{ ok: boolean; dest?: string; error?: string }> =>
+      ipcRenderer.invoke('image:saveRegion', opts)
   },
   upscale: {
     process: (opts: { filePath: string; scale: 2 | 3 | 4; kernel: string; outputFormat: 'source' | 'png' | 'jpeg'; destDir: string | null }): Promise<{ ok: boolean; outputPath?: string; error?: string }> =>

@@ -1,12 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage, net } from 'electron'
 import { join, extname, basename, dirname } from 'path'
 import { pathToFileURL } from 'url'
-import { statSync, createReadStream } from 'fs'
-import { copyFile as fsCopyFile, stat } from 'fs/promises'
+import { statSync, createReadStream, existsSync, mkdirSync } from 'fs'
+import { copyFile as fsCopyFile, stat, readFile } from 'fs/promises'
 import { Readable } from 'stream'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
-import { moveFile, copyFile, deleteFile } from './fileOps'
+import { moveFile, copyFile, deleteFile, resolveConflict } from './fileOps'
 import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
 
 let configManager: ConfigManager
@@ -29,6 +29,15 @@ const VIDEO_MIME: Record<string, string> = {
   '.mov': 'video/quicktime',
   '.avi': 'video/x-msvideo',
   '.mkv': 'video/x-matroska'
+}
+
+// Images are served from an in-memory buffer (read once, handle closed
+// immediately) rather than a lingering file:// fetch. A streamed/cached file
+// handle keeps the source file open, which makes a cross-volume "keep" move
+// fail at unlink (EPERM) — the file can't be deleted while the viewer holds it.
+const IMAGE_MIME: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif', '.svg': 'image/svg+xml'
 }
 
 // The aperture:// scheme must be registered as privileged before app-ready so
@@ -98,7 +107,7 @@ function createWindow(): void {
     if (TRANSCODE_EXTS.has(ext)) {
       try {
         const sharp = (await import('sharp')).default
-        const buf = await sharp(filePath).rotate().png().toBuffer()
+        const buf = await sharp(await readFile(filePath)).rotate().png().toBuffer()
         return new Response(buf, { headers: { 'content-type': 'image/png' } })
       } catch (e) {
         console.warn('Transcode failed, serving raw:', filePath, e)
@@ -156,6 +165,18 @@ function createWindow(): void {
       }
     }
 
+    // Serve known image types from a buffer so no file handle lingers (see
+    // IMAGE_MIME note). Anything else falls back to a direct file fetch.
+    const imgMime = IMAGE_MIME[ext]
+    if (imgMime) {
+      try {
+        const buf = await readFile(filePath)
+        return new Response(buf, { headers: { 'content-type': imgMime } })
+      } catch (e) {
+        console.warn('Image read failed, falling back to fetch:', filePath, e)
+      }
+    }
+
     return net.fetch(pathToFileURL(filePath).toString())
   })
 
@@ -166,7 +187,14 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Disable libvips' operation cache. By default sharp keeps recently-processed
+  // input files open (cached file descriptors), which on Windows blocks
+  // deleting/moving them — the Inspector runs sharp on every displayed image
+  // for metadata/histogram/thumbnails, so the current file would stay locked
+  // and a cross-volume "keep" move failed at unlink with EPERM. With the cache
+  // off, sharp releases the handle as soon as each operation finishes.
+  try { (await import('sharp')).default.cache(false) } catch (e) { console.warn('sharp.cache(false) failed:', e) }
   configManager = new ConfigManager()
   createWindow()
   app.on('activate', () => {
@@ -271,7 +299,7 @@ ipcMain.handle('scanner:scan', (_e, { dir, recursive, fileTypes }: { dir: string
   return RecursiveScanner.scan(dir, recursive, fileTypes)
 })
 
-ipcMain.handle('file:move', (_e, { src, destDir }: { src: string; destDir: string }) => moveFile(src, destDir))
+ipcMain.handle('file:move', (_e, { src, destDir }: { src: string; destDir: string }) => moveFile(src, destDir, configManager.config.options.overwrite_existing))
 
 ipcMain.handle('file:copy', (_e, { src, destDir }: { src: string; destDir: string }) => copyFile(src, destDir))
 
@@ -359,7 +387,7 @@ ipcMain.handle('upscale:process', async (_e, {
 ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: string }) => {
   try {
     const sharp = (await import('sharp')).default
-    const buffer = await sharp(filePath).png().toBuffer()
+    const buffer = await sharp(await readFile(filePath)).png().toBuffer()
     clipboard.writeImage(nativeImage.createFromBuffer(buffer))
     return { ok: true }
   } catch {
@@ -375,12 +403,30 @@ ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: str
 ipcMain.handle('image:copyRegion', async (_e, { filePath, x, y, width, height }: { filePath: string; x: number; y: number; width: number; height: number }) => {
   try {
     const sharp = (await import('sharp')).default
-    const buffer = await sharp(filePath)
+    const buffer = await sharp(await readFile(filePath))
       .extract({ left: x, top: y, width, height })
       .png()
       .toBuffer()
     clipboard.writeImage(nativeImage.createFromBuffer(buffer))
     return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
+// Save a cropped region as a new file in destDir, preserving the original's
+// format (sharp infers the encoder from the destination extension). Used by the
+// sort-mode "extract & reject" crop: the kept region is written here, then the
+// renderer rejects the original. Name conflicts get a numeric suffix.
+ipcMain.handle('image:saveRegion', async (_e, { filePath, x, y, width, height, destDir }: { filePath: string; x: number; y: number; width: number; height: number; destDir: string }) => {
+  try {
+    if (!destDir) return { ok: false, error: 'No destination folder configured' }
+    const sharp = (await import('sharp')).default
+    if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true })
+    const target = join(destDir, basename(filePath))
+    const dest = configManager.config.options.overwrite_existing ? target : resolveConflict(target)
+    await sharp(await readFile(filePath)).extract({ left: x, top: y, width, height }).toFile(dest)
+    return { ok: true, dest }
   } catch (e) {
     return { ok: false, error: String(e) }
   }

@@ -15,17 +15,26 @@ export default function Canvas() {
   const imageFrameRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
 
-  useActionRouter()
+  // Scope pointer/wheel actions to the canvas so clicks and scrolls over the
+  // Inspector / Queue grid don't trigger keep/reject/next.
+  useActionRouter(containerRef)
   const { loadFolder } = useLoadFolder()
 
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [copyFeedback, setCopyFeedback] = useState(false)
+  const [cropFeedback, setCropFeedback] = useState<string | null>(null)
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null)
   const [frameSize, setFrameSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+  // The URL currently painted in the <img>. It lags `currentFile` by one decode:
+  // we keep showing the previous frame until the next image has fully loaded, so
+  // navigation never flashes the dark frame.
+  const [displayedUrl, setDisplayedUrl] = useState<string | null>(null)
+  const pendingUrlRef = useRef<string | null>(null)
 
   const currentFile = files[currentIndex] || null
   const isVideo = currentFile?.type === 'video' && config?.utilities?.cinema?.auto_switch
+  const imageUrl = currentFile ? `aperture://${encodeURIComponent(currentFile.full_path)}` : null
 
   // Fit scale = largest scale (capped at 100%) that shows the whole image in
   // the frame. effectiveScale is the real on-screen scale: fit scale in fit
@@ -63,8 +72,31 @@ export default function Canvas() {
     return () => ro.disconnect()
   }, [currentFile?.full_path, isVideo])
 
-  // Reset natural size when the image changes (re-measured on load).
-  useEffect(() => { setNaturalSize(null) }, [currentFile?.full_path])
+  // Preload the next image off-screen and only swap the visible frame once it
+  // has decoded. The previous frame stays on screen until then (no dark flash).
+  // A pending-url ref discards stale loads when navigating faster than decode.
+  useEffect(() => {
+    if (!imageUrl || isVideo) {
+      pendingUrlRef.current = null
+      if (!imageUrl) { setDisplayedUrl(null); setNaturalSize(null) }
+      return
+    }
+    pendingUrlRef.current = imageUrl
+    const img = new Image()
+    img.onload = () => {
+      if (pendingUrlRef.current !== imageUrl) return
+      setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight })
+      setDisplayedUrl(imageUrl)
+    }
+    img.onerror = () => {
+      if (pendingUrlRef.current !== imageUrl) return
+      // Couldn't decode (corrupt/unsupported) — show it anyway so the broken
+      // state is visible rather than silently holding the prior image.
+      setNaturalSize(null)
+      setDisplayedUrl(imageUrl)
+    }
+    img.src = imageUrl
+  }, [imageUrl, isVideo])
 
   // Publish the resolved fit scale so the readout and zoom steps use the real
   // on-screen scale even while in fit mode.
@@ -109,6 +141,11 @@ export default function Canvas() {
   const showCopyFeedback = useCallback(() => {
     setCopyFeedback(true)
     setTimeout(() => setCopyFeedback(false), 1600)
+  }, [])
+
+  const showCropFeedback = useCallback((msg: string) => {
+    setCropFeedback(msg)
+    setTimeout(() => setCropFeedback(null), 1600)
   }, [])
 
   const handleCopyImage = useCallback(async () => {
@@ -186,12 +223,28 @@ export default function Canvas() {
     const cropH = Math.max(1, Math.round(Math.max(p1.y, p2.y)) - cropY)
 
     if (cropW >= 1 && cropH >= 1) {
-      const result = await window.api.image.copyRegion({
-        filePath: cf.full_path, x: cropX, y: cropY, width: cropW, height: cropH
-      })
-      if (result.ok) showCopyFeedback()
+      if (mode === 'sort') {
+        // Sort mode: the drawn region is the part worth keeping (e.g. training
+        // crop). Save it to the keep folder in the original's format, then
+        // reject the original — the rest of the frame is discarded.
+        if (!config?.keep) { showCropFeedback('NO KEEP FOLDER SET'); return }
+        const result = await window.api.image.saveRegion({
+          filePath: cf.full_path, x: cropX, y: cropY, width: cropW, height: cropH, destDir: config.keep
+        })
+        if (result.ok) {
+          showCropFeedback('CROPPED → KEPT')
+          handleRejectRef.current()
+        } else {
+          showCropFeedback('CROP SAVE FAILED')
+        }
+      } else {
+        const result = await window.api.image.copyRegion({
+          filePath: cf.full_path, x: cropX, y: cropY, width: cropW, height: cropH
+        })
+        if (result.ok) showCopyFeedback()
+      }
     }
-  }, [showCopyFeedback])
+  }, [showCopyFeedback, showCropFeedback, mode, config])
 
   // Drag-to-pan handlers (image-frame level, used only when not selecting a
   // crop region). Pointer capture keeps tracking the drag outside the frame.
@@ -290,7 +343,6 @@ export default function Canvas() {
   }
 
   const disposition = currentFile ? state.dispositions[currentFile.full_path] : null
-  const imageUrl = currentFile ? `aperture://${encodeURIComponent(currentFile.full_path)}` : null
 
   return (
     <div className="canvas" ref={containerRef}>
@@ -306,6 +358,7 @@ export default function Canvas() {
         {disposition === 'rejected' && <span className="chip" style={{ color: 'var(--wine-3)' }}>REJECTED</span>}
         {selectionMode && <span className="chip" style={{ color: 'var(--sepia)' }}>DRAW AREA</span>}
         {copyFeedback && <span className="chip" style={{ color: '#98c486' }}>COPIED</span>}
+        {cropFeedback && <span className="chip" style={{ color: '#98c486' }}>⬚ {cropFeedback}</span>}
       </div>
       <div className="hud hud-tr">
         <span className="chip">
@@ -340,9 +393,8 @@ export default function Canvas() {
             <>
               <img
                 ref={imgRef}
-                src={imageUrl}
+                src={displayedUrl || ''}
                 alt={currentFile?.filename}
-                onLoad={e => setNaturalSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
                 style={{
                   position: 'absolute',
                   left: '50%',
@@ -353,7 +405,7 @@ export default function Canvas() {
                   maxHeight: 'none',
                   transform: `translate(-50%, -50%) translate(${panOffset.x}px, ${panOffset.y}px)`,
                   transformOrigin: 'center center',
-                  visibility: naturalSize ? 'visible' : 'hidden',
+                  visibility: displayedUrl && naturalSize ? 'visible' : 'hidden',
                   userSelect: 'none',
                   pointerEvents: 'none'
                 }}

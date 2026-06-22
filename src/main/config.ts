@@ -24,6 +24,7 @@ export interface Config {
     recursive_loading: boolean
     auto_advance: boolean
     confirm_delete: boolean
+    overwrite_existing: boolean
     file_types: string[]
   }
   filmography: {
@@ -91,6 +92,7 @@ export const DEFAULT_CONFIG: Config = {
     recursive_loading: false,
     auto_advance: false,
     confirm_delete: true,
+    overwrite_existing: true,
     file_types: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'cr2', 'nef', 'arw', 'dng']
   },
   filmography: {
