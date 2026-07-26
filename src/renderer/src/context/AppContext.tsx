@@ -16,6 +16,9 @@ export type Disposition = 'kept' | 'rejected' | 'skipped' | null
  * Single level by design — a second undo is a no-op.
  */
 export interface UndoEntry {
+  /** Identifies this specific entry so a restore that resolves late can tell
+   * whether the slot still holds the action it was undoing. */
+  id: number
   kind: 'keep' | 'reject' | 'delete'
   file: FileInfo
   /** Index the file occupied before removal; restore puts it back here. */
@@ -75,7 +78,7 @@ type AppAction =
   | { type: 'SET_DISPOSITION'; payload: { path: string; disposition: Disposition } }
   | { type: 'REMOVE_FILE'; payload: string }
   | { type: 'RECORD_ACTION'; payload: { kind: UndoEntry['kind']; undo: UndoEntry | null } }
-  | { type: 'UNDO_RESTORE'; payload: { file: FileInfo; index: number } }
+  | { type: 'UNDO_RESTORE'; payload: { file: FileInfo; index: number; kind: UndoEntry['kind']; id: number } }
   | { type: 'CLEAR_UNDO' }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_VERSION'; payload: string }
@@ -167,10 +170,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       }
     }
     case 'UNDO_RESTORE': {
-      const entry = state.undoEntry
-      if (!entry) return state
-      const { file, index } = action.payload
-      const key = STAT_KEY[entry.kind]
+      // `kind` rides on the payload rather than being read back off
+      // state.undoEntry: the restore is async, so another cull landing while it
+      // was in flight would have replaced the entry and decremented the wrong
+      // counter.
+      const { file, index, kind, id } = action.payload
+      const key = STAT_KEY[kind]
       const files = [...state.files]
       // The list has shifted since the action (further culling, another folder
       // op), so clamp rather than trusting the recorded index blindly.
@@ -180,7 +185,9 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         files,
         currentIndex: at,
-        undoEntry: null,
+        // Only vacate the slot if it still holds the entry we just restored. A
+        // cull that landed while the restore was in flight owns it now.
+        undoEntry: state.undoEntry?.id === id ? null : state.undoEntry,
         sessionStats: { ...state.sessionStats, [key]: Math.max(0, state.sessionStats[key] - 1) },
         zoom: 1,
         fitMode: true,

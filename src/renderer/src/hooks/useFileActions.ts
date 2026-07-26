@@ -2,6 +2,11 @@ import { useCallback, useRef } from 'react'
 import { useApp } from '../context/AppContext'
 import type { FileInfo } from '../context/AppContext'
 
+// Monotonic tag for undo entries, so a late-resolving restore can tell whether
+// the undo slot still holds the action it was undoing.
+let undoSeq = 0
+const nextUndoId = (): number => ++undoSeq
+
 /** Parent directory of a Windows or POSIX path. */
 function parentDir(p: string): string {
   const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
@@ -49,7 +54,7 @@ export function useFileActions() {
 
     dispatch({
       type: 'RECORD_ACTION',
-      payload: { kind: 'keep', undo: { kind: 'keep', file, index, originalPath: file.full_path, currentPath } }
+      payload: { kind: 'keep', undo: { id: nextUndoId(), kind: 'keep', file, index, originalPath: file.full_path, currentPath } }
     })
     dispatch({ type: 'REMOVE_FILE', payload: file.full_path })
   }, [dispatch])
@@ -66,7 +71,7 @@ export function useFileActions() {
 
     dispatch({
       type: 'RECORD_ACTION',
-      payload: { kind: 'reject', undo: { kind: 'reject', file, index, originalPath: file.full_path, currentPath: res.dest } }
+      payload: { kind: 'reject', undo: { id: nextUndoId(), kind: 'reject', file, index, originalPath: file.full_path, currentPath: res.dest } }
     })
     dispatch({ type: 'REMOVE_FILE', payload: file.full_path })
   }, [dispatch])
@@ -83,7 +88,7 @@ export function useFileActions() {
 
     dispatch({
       type: 'RECORD_ACTION',
-      payload: { kind: 'delete', undo: { kind: 'delete', file, index, originalPath: file.full_path, trashId: res.entry.id } }
+      payload: { kind: 'delete', undo: { id: nextUndoId(), kind: 'delete', file, index, originalPath: file.full_path, trashId: res.entry.id } }
     })
     dispatch({ type: 'REMOVE_FILE', payload: file.full_path })
   }, [dispatch])
@@ -135,7 +140,7 @@ export function useFileActions() {
       ? entry.file
       : { ...entry.file, full_path: restoredPath, filename: baseName(restoredPath) }
 
-    dispatch({ type: 'UNDO_RESTORE', payload: { file, index: entry.index } })
+    dispatch({ type: 'UNDO_RESTORE', payload: { file, index: entry.index, kind: entry.kind, id: entry.id } })
   }, [dispatch])
 
   return { keep, reject, trash, deletePermanent, undo }
