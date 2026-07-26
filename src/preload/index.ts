@@ -91,11 +91,19 @@ const api = {
   app: {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     getPendingFile: (): Promise<string | null> => ipcRenderer.invoke('app:getPendingFile'),
-    onOpenFile: (callback: (filePath: string) => void): void => {
-      ipcRenderer.on('app:openFile', (_event, filePath: string) => callback(filePath))
+    // Both return an unsubscribe function. Without one, StrictMode's double
+    // effect invocation stacks a second listener and every canvas action fires
+    // twice — a context-menu Reject would remove two images while recording
+    // only one undo entry.
+    onOpenFile: (callback: (filePath: string) => void): (() => void) => {
+      const handler = (_event: unknown, filePath: string): void => callback(filePath)
+      ipcRenderer.on('app:openFile', handler)
+      return () => { ipcRenderer.removeListener('app:openFile', handler) }
     },
-    onCanvasAction: (callback: (payload: { type: string }) => void): void => {
-      ipcRenderer.on('canvas:action', (_event, payload: { type: string }) => callback(payload))
+    onCanvasAction: (callback: (payload: { type: string }) => void): (() => void) => {
+      const handler = (_event: unknown, payload: { type: string }): void => callback(payload)
+      ipcRenderer.on('canvas:action', handler)
+      return () => { ipcRenderer.removeListener('canvas:action', handler) }
     }
   }
 }

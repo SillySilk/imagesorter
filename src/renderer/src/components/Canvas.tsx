@@ -301,7 +301,7 @@ export default function Canvas() {
   // The native right-click menu dispatches over IPC. useFileActions' callbacks
   // are stable and read state through a ref, so registering once is safe.
   useEffect(() => {
-    window.api.app.onCanvasAction(({ type }) => {
+    return window.api.app.onCanvasAction(({ type }) => {
       if (type === 'reject') reject()
       else if (type === 'delete') deletePermanent()
     })

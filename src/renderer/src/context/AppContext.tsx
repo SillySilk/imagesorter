@@ -277,7 +277,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Handle file open from OS (double-click image, file association)
   useEffect(() => {
-    window.api.app.onOpenFile(async (filePath) => {
+    return window.api.app.onOpenFile(async (filePath) => {
       const dir = getDirFromPath(filePath)
       const cfg = configRef.current
       dispatch({ type: 'SET_LOADING', payload: true })
