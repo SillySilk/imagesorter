@@ -8,3 +8,4 @@ Thumbs.db
 culler_settings.json
 .certs/
 *.pfx
+*.tsbuildinfo
