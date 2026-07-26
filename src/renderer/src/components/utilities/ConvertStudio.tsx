@@ -50,9 +50,17 @@ export default function ConvertStudio({ onBack }: Props) {
   const currentFile = state.files[state.currentIndex] || null
   const saved = state.config?.utilities?.convert
 
-  const [format, setFormat] = useState<Format>((saved?.format as Format) || 'jpeg')
+  // Don't trust the saved value — a config written before the format names were
+  // normalised would otherwise select an option that doesn't exist.
+  const savedFormat = saved?.format?.toLowerCase() as Format | undefined
+  const [format, setFormat] = useState<Format>(
+    savedFormat && FORMATS.some(f => f.v === savedFormat) ? savedFormat : 'jpeg'
+  )
   const [quality, setQuality] = useState<number>(saved?.quality ?? 92)
-  const [resizeMode, setResizeMode] = useState<ResizeMode>((saved?.resize as ResizeMode) || 'none')
+  const savedResize = saved?.resize as ResizeMode | undefined
+  const [resizeMode, setResizeMode] = useState<ResizeMode>(
+    savedResize === 'long' || savedResize === 'pct' ? savedResize : 'none'
+  )
   const [longEdge, setLongEdge] = useState(2048)
   const [pct, setPct] = useState(50)
   const [stripMetadata, setStripMetadata] = useState<boolean>(saved?.strip_metadata ?? false)

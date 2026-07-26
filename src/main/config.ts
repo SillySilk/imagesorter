@@ -188,7 +188,14 @@ function migrate(data: Record<string, unknown>): Config {
   if (utils) {
     delete utils.aivideo
     const conv = utils.convert as Record<string, unknown> | undefined
-    if (conv) delete conv.color_space
+    if (conv) {
+      delete conv.color_space
+      // Pre-v9 stored the format capitalised ('JPEG'). The converter keys its
+      // extension table by sharp's lowercase names, and deepMerge preserves the
+      // saved value, so an un-normalised 'JPEG' would miss the table and write
+      // a file with `undefined` glued onto the name.
+      if (typeof conv.format === 'string') conv.format = conv.format.toLowerCase()
+    }
   }
 
   // v8: deep-merge new top-level sections with defaults (preserves existing values)

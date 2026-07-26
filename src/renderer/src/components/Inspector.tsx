@@ -49,6 +49,11 @@ export default function Inspector() {
   useEffect(() => {
     loadGenRef.current++
     inFlightRef.current.clear()
+    // Clear the ref too, not just the state. The effect below runs in this same
+    // commit and reads the ref — if it still saw the old map it would compute
+    // "nothing missing" and never reload. That blanked the grid permanently on
+    // F5 (same folder reloaded, so every path was still a hit in the old map).
+    thumbMapRef.current = new Map()
     setThumbMap(new Map())
   }, [filesToken])
 
