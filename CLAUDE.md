@@ -45,7 +45,7 @@ Then check Settings → Default apps → search "Aperture". If registry looks ri
 ## DO NOT
 - Don't point associations at the root stub. Don't re-add self-signing.
 
-> **Committing is allowed** (user lifted the previous hold on 2026-07-26). Commit normal work to `main` as usual; the file-association fix is no longer a gate.
+> **Committing and pushing are both explicitly allowed** (user lifted the previous hold on 2026-07-26). Commit and push normal work to `main` as usual — no need to ask each time. The file-association fix is no longer a gate on either.
 ---
 
 ## Directory Structure
@@ -75,6 +75,8 @@ Key source paths:
 - `src/renderer/src/components/` — UI components
 - `src/renderer/src/styles/index.css` — all styles
 - `src/renderer/src/context/AppContext.tsx` — global state
+- `src/main/` — Electron main process
+- `tests/` — Vitest suite (see Testing below)
 
 ## Destructive Actions & Undo
 
@@ -95,16 +97,36 @@ All file actions have exactly one implementation: **`src/renderer/src/hooks/useF
 `Inspector.tsx`'s thumbnail cache is keyed by **`full_path`, never by index**, and resets only on **`filesToken`** (bumped by `SET_FILES` alone).
 
 Both rules exist because of real bugs. Index keys shift every later thumbnail onto its neighbour's image the moment a file is culled. And keying the reset on the `files` array means every keep/reject/delete — which returns a new array — re-decodes the entire folder. If you touch this loader, keep the ref and the state cleared together; clearing only the state blanks the grid permanently on F5.
-- `src/main/` — Electron main process
+
+## Testing
+
+**Vitest.** `npm test` (single run) or `npm run test:watch`. Config in `vitest.config.ts`.
+
+| File | Covers |
+|---|---|
+| `tests/main/config.test.ts` | Schema-9 migration, `validate` |
+| `tests/main/fileOps.test.ts` | `resolveConflict` / `movePath` / `moveFile`, against real temp dirs |
+| `tests/main/trash.test.ts` | Trash → restore round trip, Electron `app` mocked |
+| `tests/renderer/reducer.test.ts` | Undo, session counters, `REMOVE_FILE` advance semantics |
+| `tests/renderer/useFileActions.test.tsx` | The real hook in a real provider, `window.api` mocked |
+
+Node is the default environment; renderer files opt into a DOM with a `// @vitest-environment jsdom` docblock on line 1.
+
+Main-process modules import `app` from `electron`, which doesn't resolve outside Electron — mock it (`vi.mock('electron', …)`) **before** the dynamic `await import(...)` of the module under test.
+
+`migrate`, `validate`, `reducer` and `initialState` are exported *for tests*. They aren't part of any runtime API; don't route app code through them.
+
+Most tests here are regression guards for specific bugs, and the comments say which. Before trusting a change in these areas, reintroduce the bug and confirm the test actually fails — a guard that can't fail is worse than none. **Commit before doing that**: reverting a mutation with `git checkout --` also throws away any uncommitted work in the same file.
 
 ## Build & Ship Workflow
 
 Use the `/ship-aperture` skill — it handles everything in order:
 
-1. `electron-vite build` — compiles source to `out/`
-2. Stops any running Aperture process
-3. `electron-builder --dir` — packages to `dist/win-unpacked/` (this IS the app the user runs; no copy step)
-4. Commits and pushes to GitHub
+1. `npm test` — the suite must pass before anything is packaged
+2. `electron-vite build` — compiles source to `out/`
+3. Stops any running Aperture process
+4. `electron-builder --dir` — packages to `dist/win-unpacked/` (this IS the app the user runs; no copy step)
+5. Commits and pushes to GitHub
 
 **Never deploy or copy the build anywhere else.** The old `C:\AI\Image Viewer App` deploy folder is retired (removed 2026-06-12).
 

@@ -122,7 +122,8 @@ function getConfigPath(): string {
   return userDataPath
 }
 
-function migrate(data: Record<string, unknown>): Config {
+/** Exported for tests — the migration is where removed keys actually die. */
+export function migrate(data: Record<string, unknown>): Config {
   const d = data as Record<string, unknown>
 
   // v1: no sort_settings at all
@@ -204,7 +205,8 @@ function migrate(data: Record<string, unknown>): Config {
   return merged
 }
 
-function validate(config: unknown): { ok: boolean; error?: string } {
+/** Exported for tests. */
+export function validate(config: unknown): { ok: boolean; error?: string } {
   if (typeof config !== 'object' || config === null) return { ok: false, error: 'Config must be an object' }
   const c = config as Record<string, unknown>
 

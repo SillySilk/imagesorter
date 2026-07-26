@@ -87,7 +87,7 @@ type AppAction =
   | { type: 'PREVIOUS' }
   | { type: 'RANDOM' }
 
-const initialState: AppState = {
+export const initialState: AppState = {
   config: null,
   files: [],
   currentIndex: 0,
@@ -112,7 +112,9 @@ const STAT_KEY: Record<UndoEntry['kind'], keyof SessionStats> = {
   delete: 'deleted'
 }
 
-function reducer(state: AppState, action: AppAction): AppState {
+/** Exported for tests — undo, session counters and REMOVE_FILE's advance
+ *  semantics all live here and are worth pinning down. */
+export function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'SET_CONFIG':
       return {
