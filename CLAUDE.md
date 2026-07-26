@@ -75,6 +75,26 @@ Key source paths:
 - `src/renderer/src/components/` — UI components
 - `src/renderer/src/styles/index.css` — all styles
 - `src/renderer/src/context/AppContext.tsx` — global state
+
+## Destructive Actions & Undo
+
+All file actions have exactly one implementation: **`src/renderer/src/hooks/useFileActions.ts`**. Both entry points use it — `useActionRouter` (keyboard/mouse/wheel) and `Canvas` (the native right-click menu, which arrives over IPC). Don't add a second copy; session counters and undo would drift.
+
+| Input | Action | Reversible |
+|---|---|---|
+| `Delete` key | Moves to Aperture's trash, advances. No prompt. Works in **both** modes. | Yes — `Ctrl+Z` |
+| `Ctrl+Z` | Restores the last keep/reject/delete to its original path *and index*. Single level. | — |
+| Right-click → *Delete Permanently* | `fs.unlink`. Honors the Confirm-before-delete setting. | **No** |
+
+- **`Delete` and `Ctrl+Z` are hard-wired** in `useActionRouter`'s `onKeyDown`, above the `key_mappings` lookup. A mapping would be mode-scoped and deletable from the Controls tab, so "always works" wouldn't hold. They sit *after* the INPUT/TEXTAREA and `settingsOpen` guards — moving them earlier would let `Delete` destroy the image behind an open Preferences modal.
+- **Trash** is `%APPDATA%\aperture\trash\` with a JSON manifest (`src/main/trash.ts`), **not** the Recycle Bin — the Recycle Bin has no practical programmatic restore from Electron. Never emptied automatically; Preferences → General has the control.
+- Undo uses `file:moveTo` (exact destination path), not `file:move` (destination *directory*), because `resolveConflict` may have renamed the file to `foo_1.jpg` on the way out.
+
+## Thumbnail Grid — Two Traps
+
+`Inspector.tsx`'s thumbnail cache is keyed by **`full_path`, never by index**, and resets only on **`filesToken`** (bumped by `SET_FILES` alone).
+
+Both rules exist because of real bugs. Index keys shift every later thumbnail onto its neighbour's image the moment a file is culled. And keying the reset on the `files` array means every keep/reject/delete — which returns a new array — re-decodes the entire folder. If you touch this loader, keep the ref and the state cleared together; clearing only the state blanks the grid permanently on F5.
 - `src/main/` — Electron main process
 
 ## Build & Ship Workflow
