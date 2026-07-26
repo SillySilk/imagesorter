@@ -65,6 +65,7 @@ export interface AppState {
 
 type AppAction =
   | { type: 'SET_CONFIG'; payload: Config }
+  | { type: 'UPDATE_CONFIG'; payload: Config }
   | { type: 'SET_FILES'; payload: FileInfo[] }
   | { type: 'SET_INDEX'; payload: number }
   | { type: 'SET_MODE'; payload: 'sort' | 'view' }
@@ -119,6 +120,14 @@ function reducer(state: AppState, action: AppAction): AppState {
         config: action.payload,
         mode: action.payload.app_mode === 'last' ? state.mode : (action.payload.app_mode || 'view')
       }
+    case 'UPDATE_CONFIG':
+      // For config written by an in-app tool rather than loaded or saved by the
+      // user. Deliberately does NOT recompute `mode` the way SET_CONFIG does:
+      // the active mode is runtime state (TitleBar switches it without writing
+      // app_mode), so recomputing here would snap the user back to app_mode
+      // behind their back. In sort mode left-click is 'keep', so the very next
+      // click on the canvas would move a file.
+      return { ...state, config: action.payload }
     case 'SET_FILES':
       return {
         ...state,

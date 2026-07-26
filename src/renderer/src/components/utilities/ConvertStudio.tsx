@@ -73,6 +73,14 @@ export default function ConvertStudio({ onBack }: Props) {
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null)
   const [batch, setBatch] = useState<BatchProgress | null>(null)
   const cancelRef = useRef(false)
+  // Authoritative in-flight guard. `status` can't serve as one: the dimensions
+  // effect below resets it whenever the displayed image changes, and a single
+  // scroll over the canvas does that (the panel sits beside a live canvas), so
+  // the buttons would re-enable mid-conversion and a second run could race the
+  // first onto the same output path.
+  const runningRef = useRef(false)
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   const imageFiles = state.files.filter(f => f.type === 'image')
   const isLossless = format === 'png'
@@ -82,9 +90,13 @@ export default function ConvertStudio({ onBack }: Props) {
   useEffect(() => {
     let cancelled = false
     setDimensions(null)
-    setStatus('idle')
-    setResultPath(null)
-    setErrorMsg(null)
+    // Leave run state alone while a conversion is actually running, or this
+    // would clear the in-flight guard and re-enable the buttons underneath it.
+    if (!runningRef.current) {
+      setStatus('idle')
+      setResultPath(null)
+      setErrorMsg(null)
+    }
     if (!currentFile || currentFile.type !== 'image') return
     window.api.image.metadata({ filePath: currentFile.full_path })
       .then(m => {
@@ -103,7 +115,11 @@ export default function ConvertStudio({ onBack }: Props) {
 
   /** Persist the current settings so they're the defaults next time. */
   const persistSettings = useCallback(async () => {
-    const config = state.config
+    // Read the LATEST config, not the one captured when the run started. A long
+    // batch easily outlives a Preferences save or a folder change, and writing
+    // back a stale whole-config snapshot silently reverts them on disk —
+    // ConfigManager.save is a wholesale overwrite with no merge.
+    const config = stateRef.current.config
     if (!config) return
     const updated = {
       ...config,
@@ -120,8 +136,11 @@ export default function ConvertStudio({ onBack }: Props) {
       }
     }
     await window.api.config.save(updated)
-    dispatch({ type: 'SET_CONFIG', payload: updated })
-  }, [state.config, format, quality, resizeMode, stripMetadata, mirrorFolders, dispatch])
+    // UPDATE_CONFIG, not SET_CONFIG: the latter recomputes the active mode from
+    // app_mode, so merely converting an image would snap a user who had
+    // switched to View back into Sort — where left-click is 'keep'.
+    dispatch({ type: 'UPDATE_CONFIG', payload: updated })
+  }, [format, quality, resizeMode, stripMetadata, mirrorFolders, dispatch])
 
   const handlePickDir = useCallback(async () => {
     const dir = await window.api.dialog.openFolder()
@@ -129,7 +148,8 @@ export default function ConvertStudio({ onBack }: Props) {
   }, [])
 
   const handleRun = useCallback(async () => {
-    if (!currentFile) return
+    if (!currentFile || runningRef.current) return
+    runningRef.current = true
     setStatus('processing')
     setResultPath(null)
     setErrorMsg(null)
@@ -155,11 +175,14 @@ export default function ConvertStudio({ onBack }: Props) {
     } catch (e: unknown) {
       setErrorMsg(String(e))
       setStatus('error')
+    } finally {
+      runningRef.current = false
     }
   }, [currentFile, format, quality, buildResize, stripMetadata, outputDir, persistSettings])
 
   const handleBatch = useCallback(async () => {
-    if (imageFiles.length === 0) return
+    if (imageFiles.length === 0 || runningRef.current) return
+    runningRef.current = true
     cancelRef.current = false
     setStatus('processing')
     setResultPath(null)
@@ -172,31 +195,37 @@ export default function ConvertStudio({ onBack }: Props) {
     // Sequential on purpose: sharp is already multi-threaded per image, and a
     // parallel fan-out over a few thousand files would thrash memory.
     const destDir = outputDir === 'source' ? null : outputDir
-    const mirrorFrom = destDir && mirrorFolders ? (state.config?.src || null) : null
+    const mirrorFrom = destDir && mirrorFolders ? (stateRef.current.config?.src || null) : null
     const resize = buildResize()
 
-    for (let i = 0; i < total; i++) {
-      if (cancelRef.current) {
-        setBatch({ done: i, total, failed: [...failed], cancelled: true })
-        setStatus('idle')
-        return
+    try {
+      for (let i = 0; i < total; i++) {
+        if (cancelRef.current) {
+          setBatch({ done: i, total, failed: [...failed], cancelled: true })
+          setStatus('idle')
+          return
+        }
+        const f = imageFiles[i]
+        // A single file failing must not abort the run — collect and continue.
+        try {
+          const res = await window.api.convert.process({
+            filePath: f.full_path, format, quality, resize, stripMetadata, destDir, mirrorFrom
+          })
+          if (!res.ok) failed.push({ filename: f.filename, error: res.error || 'Unknown error' })
+        } catch (e: unknown) {
+          failed.push({ filename: f.filename, error: String(e) })
+        }
+        setBatch({ done: i + 1, total, failed: [...failed], cancelled: false })
       }
-      const f = imageFiles[i]
-      try {
-        const res = await window.api.convert.process({
-          filePath: f.full_path, format, quality, resize, stripMetadata, destDir, mirrorFrom
-        })
-        if (!res.ok) failed.push({ filename: f.filename, error: res.error || 'Unknown error' })
-      } catch (e: unknown) {
-        failed.push({ filename: f.filename, error: String(e) })
-      }
-      setBatch({ done: i + 1, total, failed: [...failed], cancelled: false })
-    }
 
-    setStatus(failed.length === total ? 'error' : 'done')
-    if (failed.length === total) setErrorMsg('Every file failed to convert.')
-    persistSettings()
-  }, [imageFiles, format, quality, buildResize, stripMetadata, outputDir, mirrorFolders, state.config?.src, persistSettings])
+      setStatus(failed.length === total ? 'error' : 'done')
+      if (failed.length === total) setErrorMsg('Every file failed to convert.')
+      persistSettings()
+    } finally {
+      // Also runs on the cancel `return` above, releasing the guard.
+      runningRef.current = false
+    }
+  }, [imageFiles, format, quality, buildResize, stripMetadata, outputDir, mirrorFolders, persistSettings])
 
   const canRun = !!currentFile && currentFile.type === 'image' && status !== 'processing' && !!dimensions && dimensions.w > 0
 
