@@ -13,15 +13,18 @@ export function resolveConflict(dest: string): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-export async function moveFile(src: string, destDir: string, overwrite = true): Promise<{ ok: boolean; dest?: string; error?: string }> {
+/**
+ * Move `src` to an exact destination path.
+ *
+ * Callers that only know a destination *directory* should use `moveFile`.
+ * Undo needs this exact-path form: `resolveConflict` may have renamed a file to
+ * `foo_1.jpg` on the way out, and putting it back as `foo.jpg` is impossible
+ * through a directory-only API.
+ */
+export async function movePath(src: string, dest: string): Promise<{ ok: boolean; dest?: string; error?: string }> {
   if (!fs.existsSync(src)) return { ok: false, error: 'Source file not found' }
+  const destDir = path.dirname(dest)
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true })
-  // overwrite: replace a same-named file at the destination. Otherwise keep both
-  // by suffixing the name (_1, _2, …). rename and copyFileSync both overwrite an
-  // existing destination by default, so the plain target path is all we need.
-  const dest = overwrite
-    ? path.join(destDir, path.basename(src))
-    : resolveConflict(path.join(destDir, path.basename(src)))
 
   // Fast path: same-volume rename. This succeeds even when the source is held
   // open by the viewer (rename doesn't require delete access), so it's the
@@ -54,6 +57,19 @@ export async function moveFile(src: string, destDir: string, overwrite = true): 
     }
     return { ok: false, error: 'unreachable' }
   }
+}
+
+export async function moveFile(src: string, destDir: string, overwrite = true): Promise<{ ok: boolean; dest?: string; error?: string }> {
+  if (!fs.existsSync(src)) return { ok: false, error: 'Source file not found' }
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true })
+  // overwrite: replace a same-named file at the destination. Otherwise keep both
+  // by suffixing the name (_1, _2, …). rename and copyFileSync both overwrite an
+  // existing destination by default, so the plain target path is all we need.
+  const dest = overwrite
+    ? path.join(destDir, path.basename(src))
+    : resolveConflict(path.join(destDir, path.basename(src)))
+
+  return movePath(src, dest)
 }
 
 export function copyFile(src: string, destDir: string): { ok: boolean; dest?: string; error?: string } {

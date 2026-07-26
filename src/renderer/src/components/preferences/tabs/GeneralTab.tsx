@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Field, Toggle, Seg } from '../forms/Field'
+import { formatBytes } from '../../../utils/formatters'
 import type { Config } from '../../../../../main/config'
 
 const FILE_TYPE_OPTIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'raw', 'cr2', 'nef', 'arw', 'dng']
@@ -7,6 +8,59 @@ const FILE_TYPE_OPTIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', '
 interface Props {
   draft: Config
   onChange: (updated: Partial<Config>) => void
+}
+
+/** Files removed with the Delete key live here until explicitly emptied. */
+function TrashControl() {
+  const [info, setInfo] = useState<{ count: number; bytes: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  const refresh = useCallback(() => {
+    window.api.trash.info().then(setInfo).catch(() => setInfo(null))
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  const handleEmpty = useCallback(async () => {
+    if (!info || info.count === 0) return
+    const confirmed = await window.api.dialog.confirm({
+      title: 'Empty Trash',
+      message: `Permanently delete ${info.count} file${info.count === 1 ? '' : 's'} from Aperture's trash?`,
+      detail: 'This cannot be undone.'
+    })
+    if (!confirmed) return
+    setBusy(true)
+    try {
+      const res = await window.api.trash.empty()
+      setNote(res.failed > 0
+        ? `Removed ${res.count}; ${res.failed} could not be deleted (file in use).`
+        : `Removed ${res.count} file${res.count === 1 ? '' : 's'}.`)
+      refresh()
+    } finally {
+      setBusy(false)
+    }
+  }, [info, refresh])
+
+  return (
+    <Field label="Aperture Trash" desc="Where the Delete key sends files. Ctrl+Z restores the most recent one; nothing is removed automatically.">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--silver-3)', minWidth: 120 }}>
+          {info === null
+            ? 'reading…'
+            : info.count === 0
+              ? 'empty'
+              : `${info.count} file${info.count === 1 ? '' : 's'} · ${formatBytes(info.bytes)}`}
+        </span>
+        <button className="btn" onClick={handleEmpty} disabled={busy || !info || info.count === 0}>
+          {busy ? 'Emptying…' : 'Empty Trash'}
+        </button>
+      </div>
+      {note && (
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-mute)', marginTop: 5 }}>{note}</div>
+      )}
+    </Field>
+  )
 }
 
 export default function GeneralTab({ draft, onChange }: Props) {
@@ -85,13 +139,15 @@ export default function GeneralTab({ draft, onChange }: Props) {
         <Toggle value={draft.options.auto_advance} onChange={v => onChange({ options: { ...draft.options, auto_advance: v } })} />
       </Field>
 
-      <Field label="Confirm Before Delete" desc="Show dialog when no reject folder is set">
+      <Field label="Confirm Before Delete" desc="Ask first on 'Delete Permanently'. The Delete key is unaffected — it moves files to Aperture's trash and never prompts.">
         <Toggle value={draft.options.confirm_delete} onChange={v => onChange({ options: { ...draft.options, confirm_delete: v } })} />
       </Field>
 
       <Field label="Replace Same-Named Files" desc="Overwrite when a file of the same name exists at the destination (off = keep both, appends _1, _2…)">
         <Toggle value={draft.options.overwrite_existing} onChange={v => onChange({ options: { ...draft.options, overwrite_existing: v } })} />
       </Field>
+
+      <TrashControl />
     </div>
   )
 }

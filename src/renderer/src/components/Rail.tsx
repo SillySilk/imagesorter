@@ -1,17 +1,14 @@
 import React from 'react'
 import { useApp } from '../context/AppContext'
-import { IcGrid, IcAperture, IcFilm, IcCpu, IcHistory, IcSettings } from './Icons'
+import { IcAperture, IcCpu, IcSettings } from './Icons'
 
 interface Props {
   onOpenSettings: () => void
 }
 
 const items = [
-  { k: 'browse' as const, Icon: IcGrid, label: 'Browser' },
   { k: 'sort' as const, Icon: IcAperture, label: 'Cull / Sort' },
-  { k: 'film' as const, Icon: IcFilm, label: 'Film & Filters' },
   { k: 'utils' as const, Icon: IcCpu, label: 'Utilities' },
-  { k: 'history' as const, Icon: IcHistory, label: 'History' },
 ]
 
 export default function Rail({ onOpenSettings }: Props) {

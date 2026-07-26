@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Config } from '../main/config'
 import type { FileInfo } from '../main/scanner'
+import type { TrashEntry } from '../main/trash'
+
+export type ConvertFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'tiff'
+export type ConvertResize = { mode: 'none' } | { mode: 'long'; px: number } | { mode: 'pct'; pct: number }
 
 const api = {
   config: {
@@ -28,7 +32,20 @@ const api = {
     copy: (opts: { src: string; destDir: string }): Promise<{ ok: boolean; dest?: string; error?: string }> =>
       ipcRenderer.invoke('file:copy', opts),
     delete: (opts: { filePath: string }): Promise<{ ok: boolean; error?: string }> =>
-      ipcRenderer.invoke('file:delete', opts)
+      ipcRenderer.invoke('file:delete', opts),
+    /** Recoverable delete into the app-managed trash. Undoable via file.restore. */
+    trash: (opts: { filePath: string }): Promise<{ ok: boolean; entry?: TrashEntry; error?: string }> =>
+      ipcRenderer.invoke('file:trash', opts),
+    restore: (opts: { trashId: string }): Promise<{ ok: boolean; restoredPath?: string; error?: string }> =>
+      ipcRenderer.invoke('file:restore', opts),
+    /** Exact-path move — undo needs this because the file may have been
+     * renamed to `foo_1.jpg` on its way out. */
+    moveTo: (opts: { src: string; destPath: string }): Promise<{ ok: boolean; dest?: string; error?: string }> =>
+      ipcRenderer.invoke('file:moveTo', opts)
+  },
+  trash: {
+    info: (): Promise<{ count: number; bytes: number }> => ipcRenderer.invoke('trash:info'),
+    empty: (): Promise<{ ok: boolean; count: number; failed: number }> => ipcRenderer.invoke('trash:empty')
   },
   image: {
     metadata: (opts: { filePath: string }) => ipcRenderer.invoke('image:metadata', opts),
@@ -46,6 +63,18 @@ const api = {
   upscale: {
     process: (opts: { filePath: string; scale: 2 | 3 | 4; kernel: string; outputFormat: 'source' | 'png' | 'jpeg'; destDir: string | null }): Promise<{ ok: boolean; outputPath?: string; error?: string }> =>
       ipcRenderer.invoke('upscale:process', opts)
+  },
+  convert: {
+    process: (opts: {
+      filePath: string
+      format: ConvertFormat
+      quality: number
+      resize: ConvertResize
+      stripMetadata: boolean
+      destDir: string | null
+      mirrorFrom?: string | null
+    }): Promise<{ ok: boolean; outputPath?: string; bytes?: number; error?: string }> =>
+      ipcRenderer.invoke('convert:process', opts)
   },
   shell: {
     showInExplorer: (opts: { filePath: string }) => ipcRenderer.invoke('shell:showInExplorer', opts),

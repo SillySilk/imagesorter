@@ -3,12 +3,10 @@ import { useApp } from '../context/AppContext'
 
 export default function StatusBar() {
   const { state } = useApp()
-  const { mode, config, files } = state
+  const { mode, config, files, sessionStats, undoEntry } = state
 
   const srcName = config?.src ? config.src : '—'
   const keepName = config?.keep ? config.keep : '—'
-  const keptCount = Object.values(state.dispositions).filter(d => d === 'kept').length
-  const rejectedCount = Object.values(state.dispositions).filter(d => d === 'rejected').length
 
   return (
     <div className="statusbar">
@@ -17,11 +15,17 @@ export default function StatusBar() {
       </span>
       <span>SRC <span style={{ color: 'var(--silver-2)' }}>{srcName}</span></span>
       <span>KEEP <span style={{ color: 'var(--silver-2)' }}>{keepName}</span></span>
-      {files.length > 0 && (
+      {(files.length > 0 || sessionStats.kept > 0 || sessionStats.rejected > 0 || sessionStats.deleted > 0) && (
         <>
-          <span style={{ color: '#98c486' }}>✓ {keptCount}</span>
-          <span style={{ color: 'var(--wine-3)' }}>✕ {rejectedCount}</span>
+          <span style={{ color: '#98c486' }}>✓ {sessionStats.kept}</span>
+          <span style={{ color: 'var(--wine-3)' }}>✕ {sessionStats.rejected}</span>
+          <span style={{ color: 'var(--silver-4)' }}>🗑 {sessionStats.deleted}</span>
         </>
+      )}
+      {undoEntry && (
+        <span style={{ color: 'var(--silver-4)' }} title={`Ctrl+Z restores ${undoEntry.file.filename}`}>
+          ⟲ UNDO READY
+        </span>
       )}
       <span className="grow"></span>
       <span className="pip ok">{config ? 'SETTINGS OK' : 'LOADING'}</span>

@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react'
 import { useApp } from '../../context/AppContext'
-import { IcCinema, IcConvert, IcUpscale, IcWand, IcBack } from '../Icons'
+import { IcCinema, IcConvert, IcUpscale, IcBack } from '../Icons'
 import UpscaleStudio from './UpscaleStudio'
+import ConvertStudio from './ConvertStudio'
 
-type SubView = null | 'video' | 'convert' | 'upscale' | 'aivideo'
+type SubView = null | 'video' | 'convert' | 'upscale'
+type Status = 'beta' | 'ready'
 
-const TILES = [
+const STATUS_LABEL: Record<Status, string> = { beta: 'Beta', ready: 'Ready' }
+
+const TILES: {
+  k: Exclude<SubView, null>
+  Icon: typeof IcCinema
+  status: Status
+  title: string
+  em: string
+  desc: string
+  features: string[]
+}[] = [
   {
-    k: 'video' as const,
+    k: 'video',
     Icon: IcCinema,
     status: 'beta',
     title: 'Cinema',
@@ -16,31 +28,22 @@ const TILES = [
     features: ['J·K·L shuttle keys', 'A/B loop markers', 'Reel-style playhead']
   },
   {
-    k: 'convert' as const,
+    k: 'convert',
     Icon: IcConvert,
-    status: 'planned',
+    status: 'ready',
     title: 'File',
     em: 'Conversion',
-    desc: 'Batch convert format and color space without leaving the suite.',
-    features: ['JPEG · PNG · WebP · AVIF', 'Color-space convert', 'Mirror folder structure']
+    desc: 'Convert the current image, or batch the whole loaded queue, without leaving the suite.',
+    features: ['JPEG · PNG · WebP · AVIF · TIFF', 'Resize & strip metadata', 'Batch with progress']
   },
   {
-    k: 'upscale' as const,
+    k: 'upscale',
     Icon: IcUpscale,
     status: 'ready',
     title: 'Upscale',
     em: 'Studio',
     desc: 'High-quality 2× / 3× / 4× resize with Lanczos3, Mitchell & Bicubic.',
     features: ['Lanczos3 · Mitchell · Bicubic', 'PNG · JPEG · source format', 'Saves next to original']
-  },
-  {
-    k: 'aivideo' as const,
-    Icon: IcWand,
-    status: 'planned',
-    title: 'AI Video',
-    em: 'Atelier',
-    desc: 'Cut, restyle, interpolate. Prompt-driven editing on the timeline.',
-    features: ['Prompt-to-cut', 'Frame interpolation', 'Style transfer']
   }
 ]
 
@@ -84,22 +87,6 @@ function VideoConfig({ onBack }: { onBack: () => void }) {
   )
 }
 
-function PlannedPane({ onBack, title, sub }: { onBack: () => void; title: React.ReactNode; sub: string }) {
-  return (
-    <div className="sub-view">
-      <SubBack onBack={onBack} />
-      <h2 className="section-title" style={{ fontSize: 15 }}>{title}</h2>
-      <div className="section-sub">{sub}</div>
-      <div style={{ marginTop: 22, padding: 16, border: '1px dashed rgba(196,192,200,0.08)', borderRadius: 3, background: 'rgba(0,0,0,0.25)' }}>
-        <div className="mono" style={{ fontSize: 10, letterSpacing: '0.22em', color: 'var(--wine-3)', textTransform: 'uppercase', marginBottom: 8 }}>Roadmap</div>
-        <div style={{ fontSize: 11, color: 'var(--silver-3)', lineHeight: 1.7 }}>
-          UI shell is in place. Functionality is staged for a future release.
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function UtilitiesIndex({ onOpen }: { onOpen: (k: SubView) => void }) {
   return (
     <>
@@ -114,7 +101,7 @@ function UtilitiesIndex({ onOpen }: { onOpen: (k: SubView) => void }) {
             <h3>{title} <em>{em}</em></h3>
             <div className="util-desc">{desc}</div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <span className={`util-status ${status}`}>● {status === 'beta' ? 'Beta' : 'Planned'}</span>
+              <span className={`util-status ${status}`}>● {STATUS_LABEL[status]}</span>
               <span className="mono" style={{ fontSize: 9, color: 'var(--wine-3)', letterSpacing: '0.18em' }}>OPEN →</span>
             </div>
             <ul className="util-features">
@@ -137,9 +124,8 @@ export default function UtilitiesPanel() {
 
   const content = (() => {
     if (subView === 'video') return <VideoConfig onBack={() => setSubView(null)} />
-    if (subView === 'convert') return <PlannedPane onBack={() => setSubView(null)} title={<>File <em>Conversion</em></>} sub="Batch convert format · color space · containers" />
+    if (subView === 'convert') return <ConvertStudio onBack={() => setSubView(null)} />
     if (subView === 'upscale') return <UpscaleStudio onBack={() => setSubView(null)} />
-    if (subView === 'aivideo') return <PlannedPane onBack={() => setSubView(null)} title={<>AI Video <em>Atelier</em></>} sub="Prompt-driven cut · style · interpolate" />
     return <UtilitiesIndex onOpen={setSubView} />
   })()
 

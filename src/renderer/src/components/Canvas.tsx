@@ -6,6 +6,7 @@ import {
 } from './Icons'
 import CinemaPlayer from './utilities/CinemaPlayer'
 import { useActionRouter } from '../hooks/useActionRouter'
+import { useFileActions } from '../hooks/useFileActions'
 import { useLoadFolder } from '../hooks/useLoadFolder'
 
 export default function Canvas() {
@@ -18,6 +19,9 @@ export default function Canvas() {
   // Scope pointer/wheel actions to the canvas so clicks and scrolls over the
   // Inspector / Queue grid don't trigger keep/reject/next.
   useActionRouter(containerRef)
+  // Same implementations the keyboard router uses, so the dock buttons, the
+  // crop flow and the native context menu all record undo and session counts.
+  const { keep, reject, deletePermanent } = useFileActions()
   const { loadFolder } = useLoadFolder()
 
   const [selectionMode, setSelectionMode] = useState(false)
@@ -233,7 +237,7 @@ export default function Canvas() {
         })
         if (result.ok) {
           showCropFeedback('CROPPED → KEPT')
-          handleRejectRef.current()
+          reject()
         } else {
           showCropFeedback('CROP SAVE FAILED')
         }
@@ -244,7 +248,7 @@ export default function Canvas() {
         if (result.ok) showCopyFeedback()
       }
     }
-  }, [showCopyFeedback, showCropFeedback, mode, config])
+  }, [showCopyFeedback, showCropFeedback, mode, config, reject])
 
   // Drag-to-pan handlers (image-frame level, used only when not selecting a
   // crop region). Pointer capture keeps tracking the drag outside the frame.
@@ -289,53 +293,19 @@ export default function Canvas() {
       case 'zoom_in': dispatch({ type: 'SET_ZOOM', payload: effectiveScale * 1.25 }); break
       case 'zoom_out': dispatch({ type: 'SET_ZOOM', payload: effectiveScale / 1.25 }); break
       case 'fit': dispatch({ type: 'SET_FIT' }); break
-      case 'keep': handleKeep(); break
-      case 'reject': handleReject(); break
+      case 'keep': keep(); break
+      case 'reject': reject(); break
     }
-  }, [effectiveScale, dispatch])
+  }, [effectiveScale, dispatch, keep, reject])
 
-  const handleKeep = useCallback(async () => {
-    if (!currentFile) return
-    if (config?.keep) {
-      const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: config.keep })
-      if (!ok) return
-    }
-    dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
-  }, [currentFile, config, dispatch])
-
-  const handleReject = useCallback(async () => {
-    if (!currentFile) return
-    const i = Math.max(currentFile.full_path.lastIndexOf('\\'), currentFile.full_path.lastIndexOf('/'))
-    const parent = i > 0 ? currentFile.full_path.slice(0, i) : currentFile.full_path
-    const destDir = config?.reject || `${parent}\\Rejected`
-    const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir })
-    if (ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
-  }, [currentFile, config, dispatch])
-
-  const handleDelete = useCallback(async () => {
-    if (!currentFile) return
-    const confirmed = await window.api.dialog.confirm({
-      title: 'Delete File',
-      message: `Permanently delete "${currentFile.filename}"?`,
-      detail: 'This action cannot be undone.'
-    })
-    if (!confirmed) return
-    const { ok } = await window.api.file.delete({ filePath: currentFile.full_path })
-    if (ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
-  }, [currentFile, dispatch])
-
-  // Refs so the canvas:action listener (registered once) always calls the latest handlers
-  const handleRejectRef = useRef(handleReject)
-  handleRejectRef.current = handleReject
-  const handleDeleteRef = useRef(handleDelete)
-  handleDeleteRef.current = handleDelete
-
+  // The native right-click menu dispatches over IPC. useFileActions' callbacks
+  // are stable and read state through a ref, so registering once is safe.
   useEffect(() => {
     window.api.app.onCanvasAction(({ type }) => {
-      if (type === 'reject') handleRejectRef.current()
-      else if (type === 'delete') handleDeleteRef.current()
+      if (type === 'reject') reject()
+      else if (type === 'delete') deletePermanent()
     })
-  }, [])
+  }, [reject, deletePermanent])
 
   const handleFullscreen = () => {
     if (!document.fullscreenElement) containerRef.current?.requestFullscreen()

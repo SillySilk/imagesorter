@@ -1,13 +1,8 @@
 import { useEffect, useCallback, useRef, type RefObject } from 'react'
 import { useApp } from '../context/AppContext'
 import { useLoadFolder } from './useLoadFolder'
+import { useFileActions } from './useFileActions'
 import type { Action } from '../../../main/config'
-
-/** Parent directory of a Windows or POSIX path. */
-function parentDir(p: string): string {
-  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'))
-  return i > 0 ? p.slice(0, i) : p
-}
 
 /**
  * Wire up keyboard / mouse / wheel actions.
@@ -22,6 +17,7 @@ function parentDir(p: string): string {
 export function useActionRouter(targetRef?: RefObject<HTMLElement | null>) {
   const { state, dispatch } = useApp()
   const { loadFolder, reloadCurrentFolder } = useLoadFolder()
+  const { keep, reject, trash, deletePermanent, undo } = useFileActions()
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null)
   // Timestamp guard so one fast wheel flick can't dispatch a burst of NEXTs
   // faster than images can decode (which flashes the black frame).
@@ -42,35 +38,9 @@ export function useActionRouter(targetRef?: RefObject<HTMLElement | null>) {
       case 'zoom_in': dispatch({ type: 'SET_ZOOM', payload: s.zoom * 1.25 }); break
       case 'zoom_out': dispatch({ type: 'SET_ZOOM', payload: s.zoom / 1.25 }); break
       case 'fit_to_page': dispatch({ type: 'SET_FIT' }); break
-      case 'keep':
-        if (currentFile) {
-          if (s.config?.keep) {
-            const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir: s.config.keep })
-            if (!ok) break
-          }
-          dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
-        }
-        break
-      case 'reject':
-        if (currentFile) {
-          const destDir = s.config?.reject || `${parentDir(currentFile.full_path)}\\Rejected`
-          const { ok } = await window.api.file.move({ src: currentFile.full_path, destDir })
-          if (ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
-        }
-        break
-      case 'delete':
-        if (currentFile) {
-          const confirmed = !s.config?.options?.confirm_delete || await window.api.dialog.confirm({
-            title: 'Delete File',
-            message: `Permanently delete ${currentFile.filename}?`,
-            detail: 'This cannot be undone.'
-          })
-          if (confirmed) {
-            const res = await window.api.file.delete({ filePath: currentFile.full_path })
-            if (res.ok) dispatch({ type: 'REMOVE_FILE', payload: currentFile.full_path })
-          }
-        }
-        break
+      case 'keep': await keep(); break
+      case 'reject': await reject(); break
+      case 'delete': await deletePermanent(); break
       case 'skip':
         if (currentFile) dispatch({ type: 'SET_DISPOSITION', payload: { path: currentFile.full_path, disposition: 'skipped' } })
         dispatch({ type: 'NEXT' })
@@ -82,7 +52,7 @@ export function useActionRouter(targetRef?: RefObject<HTMLElement | null>) {
       default:
         break
     }
-  }, [dispatch])
+  }, [dispatch, keep, reject, deletePermanent])
 
   useEffect(() => {
     const getSettings = () => {
@@ -112,6 +82,24 @@ export function useActionRouter(targetRef?: RefObject<HTMLElement | null>) {
       // Ctrl+wheel is always zoom — handled in wheel handler
       // Don't fire inside inputs/textareas
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return
+
+      // Nothing below this point should reach the image while Preferences is
+      // open — Delete with the modal up must not destroy the image behind it.
+      if (stateRef.current.settingsOpen) return
+
+      // Delete and Ctrl+Z are hard-wired rather than key_mappings entries: they
+      // must behave identically in both modes and survive any saved config.
+      // A mapping would be mode-scoped and removable from the Controls tab.
+      if (e.key === 'Delete') {
+        e.preventDefault()
+        trash()
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        undo()
+        return
+      }
 
       const settings = getSettings()
       if (!settings) return
@@ -177,5 +165,5 @@ export function useActionRouter(targetRef?: RefObject<HTMLElement | null>) {
       pointerTarget.removeEventListener('mouseup', onMouseUp as EventListener)
       pointerTarget.removeEventListener('wheel', onWheel as EventListener)
     }
-  }, [dispatch, executeAction, targetRef])
+  }, [dispatch, executeAction, targetRef, loadFolder, reloadCurrentFolder, trash, undo])
 }

@@ -27,15 +27,6 @@ export interface Config {
     overwrite_existing: boolean
     file_types: string[]
   }
-  filmography: {
-    active_filter: string
-    grain: number
-    halation: number
-    vignette: number
-    color_cast: 'cool' | 'neutral' | 'warm' | 'wine'
-    letterbox: 'off' | '1.85' | '2.39' | 'academy'
-    live_preview: boolean
-  }
   appearance: {
     theme: 'burgundy' | 'obsidian' | 'plum' | 'iron'
     accent: string
@@ -49,16 +40,12 @@ export interface Config {
   utilities: {
     cinema: { auto_switch: boolean; ab_loop_key: string }
     convert: {
-      format: string; quality: number; color_space: string
+      format: string; quality: number
       resize: 'none' | 'long' | 'pct'; strip_metadata: boolean; mirror_folders: boolean
     }
     upscale: {
       engine: string; scale: 2 | 3 | 4; denoise: number; tile: number
       preserve_grain: boolean; rebake_halation: boolean; match_source_filter: string
-    }
-    aivideo: {
-      model: string; style_strength: number; frame_rate: 24 | 30 | 60
-      resolution: string; render_queue: 'local' | 'cloud'; auto_publish: boolean
     }
   }
 }
@@ -81,7 +68,7 @@ const DEFAULT_VIEW_SETTINGS: ModeSettings = {
 }
 
 export const DEFAULT_CONFIG: Config = {
-  schema_version: 8,
+  schema_version: 9,
   src: '',
   keep: '',
   reject: '',
@@ -95,15 +82,6 @@ export const DEFAULT_CONFIG: Config = {
     overwrite_existing: true,
     file_types: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'cr2', 'nef', 'arw', 'dng']
   },
-  filmography: {
-    active_filter: 'none',
-    grain: 0,
-    halation: 0,
-    vignette: 0,
-    color_cast: 'neutral',
-    letterbox: 'off',
-    live_preview: false
-  },
   appearance: {
     theme: 'burgundy',
     accent: '#a82d44',
@@ -116,9 +94,8 @@ export const DEFAULT_CONFIG: Config = {
   },
   utilities: {
     cinema: { auto_switch: true, ab_loop_key: 'i' },
-    convert: { format: 'JPEG', quality: 92, color_space: 'sRGB', resize: 'none', strip_metadata: false, mirror_folders: false },
-    upscale: { engine: 'Real-ESRGAN_4x', scale: 4, denoise: 0, tile: 512, preserve_grain: false, rebake_halation: false, match_source_filter: 'none' },
-    aivideo: { model: 'default', style_strength: 70, frame_rate: 24, resolution: '1920x1080', render_queue: 'local', auto_publish: false }
+    convert: { format: 'jpeg', quality: 92, resize: 'none', strip_metadata: false, mirror_folders: false },
+    upscale: { engine: 'Real-ESRGAN_4x', scale: 4, denoise: 0, tile: 512, preserve_grain: false, rebake_halation: false, match_source_filter: 'none' }
   }
 }
 
@@ -202,9 +179,21 @@ function migrate(data: Record<string, unknown>): Config {
     }
   }
 
+  // v9: drop features removed from the app — Filmography, AI Video Atelier, and
+  // the convert color-space control. deepMerge copies unrecognised source keys
+  // straight through, so these must be deleted explicitly or they survive in
+  // every saved config forever.
+  delete d.filmography
+  const utils = d.utilities as Record<string, unknown> | undefined
+  if (utils) {
+    delete utils.aivideo
+    const conv = utils.convert as Record<string, unknown> | undefined
+    if (conv) delete conv.color_space
+  }
+
   // v8: deep-merge new top-level sections with defaults (preserves existing values)
   const merged = deepMerge(DEFAULT_CONFIG, d as Partial<Config>)
-  merged.schema_version = 8
+  merged.schema_version = 9
   return merged
 }
 

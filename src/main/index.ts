@@ -1,12 +1,13 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, Menu, clipboard, nativeImage, net } from 'electron'
-import { join, extname, basename, dirname } from 'path'
+import { join, extname, basename, dirname, relative, isAbsolute } from 'path'
 import { pathToFileURL } from 'url'
 import { statSync, createReadStream, existsSync, mkdirSync } from 'fs'
 import { copyFile as fsCopyFile, stat, readFile } from 'fs/promises'
 import { Readable } from 'stream'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
-import { moveFile, copyFile, deleteFile, resolveConflict } from './fileOps'
+import { moveFile, movePath, copyFile, deleteFile, resolveConflict } from './fileOps'
+import { trashFile, restoreFromTrash, trashInfo, emptyTrash } from './trash'
 import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
 
 let configManager: ConfigManager
@@ -305,6 +306,23 @@ ipcMain.handle('file:copy', (_e, { src, destDir }: { src: string; destDir: strin
 
 ipcMain.handle('file:delete', (_e, { filePath }: { filePath: string }) => deleteFile(filePath))
 
+// Recoverable delete — moves to the app-managed trash so Ctrl+Z can undo it.
+// The permanent `file:delete` above stays for the explicitly-labelled
+// "Delete Permanently" context-menu item.
+ipcMain.handle('file:trash', (_e, { filePath }: { filePath: string }) => trashFile(filePath))
+
+ipcMain.handle('file:restore', (_e, { trashId }: { trashId: string }) => restoreFromTrash(trashId))
+
+ipcMain.handle('trash:info', () => trashInfo())
+
+ipcMain.handle('trash:empty', () => emptyTrash())
+
+// Exact-path move, used by undo to put a kept/rejected file back where it was.
+// `moveFile` can't do this: it takes a destination directory, and the file may
+// have been renamed to `foo_1.jpg` by resolveConflict on the way out.
+ipcMain.handle('file:moveTo', (_e, { src, destPath }: { src: string; destPath: string }) =>
+  movePath(src, resolveConflict(destPath)))
+
 ipcMain.handle('image:metadata', (_e, { filePath }: { filePath: string }) => getImageMetadata(filePath))
 
 ipcMain.handle('image:thumbnail', (_e, { filePath, width, height }: { filePath: string; width: number; height: number }) =>
@@ -379,6 +397,85 @@ ipcMain.handle('upscale:process', async (_e, {
 
     await pipeline.toFile(outputPath)
     return { ok: true, outputPath }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+})
+
+type ConvertFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'tiff'
+type ConvertResize = { mode: 'none' } | { mode: 'long'; px: number } | { mode: 'pct'; pct: number }
+
+const CONVERT_EXT: Record<ConvertFormat, string> = {
+  jpeg: '.jpg', png: '.png', webp: '.webp', avif: '.avif', tiff: '.tif'
+}
+
+ipcMain.handle('convert:process', async (_e, {
+  filePath, format, quality, resize, stripMetadata, destDir, mirrorFrom
+}: {
+  filePath: string
+  format: ConvertFormat
+  quality: number
+  resize: ConvertResize
+  stripMetadata: boolean
+  destDir: string | null
+  mirrorFrom?: string | null
+}) => {
+  try {
+    const sharp = (await import('sharp')).default
+
+    // Hand sharp the bytes, not the path. sharp(path) holds the source file
+    // open while libvips works, and this app moves and deletes those files.
+    const buf = await readFile(filePath)
+    const meta = await sharp(buf).metadata()
+
+    // .rotate() bakes EXIF orientation into the pixels and drops the orientation
+    // tag. Without it, stripping metadata silently rotates the image.
+    let pipeline = sharp(buf).rotate()
+
+    if (resize.mode === 'long' && resize.px > 0) {
+      // Square bounding box + 'inside' scales the longest edge to px whichever
+      // way the image is oriented.
+      pipeline = pipeline.resize({ width: resize.px, height: resize.px, fit: 'inside', withoutEnlargement: true })
+    } else if (resize.mode === 'pct' && resize.pct > 0 && resize.pct !== 100) {
+      // Orientation 5-8 means .rotate() swaps the axes, so the pre-rotation
+      // width is not the width we're scaling. Set width only and let sharp
+      // derive height, which preserves aspect either way.
+      const swapped = (meta.orientation || 1) >= 5
+      const srcW = swapped ? (meta.height || 0) : (meta.width || 0)
+      if (srcW > 0) {
+        pipeline = pipeline.resize({ width: Math.max(1, Math.round(srcW * resize.pct / 100)) })
+      }
+    }
+
+    const q = Math.max(1, Math.min(100, Math.round(quality)))
+    switch (format) {
+      case 'png': pipeline = pipeline.png({ compressionLevel: 9 }); break
+      case 'webp': pipeline = pipeline.webp({ quality: q }); break
+      case 'avif': pipeline = pipeline.avif({ quality: q }); break
+      case 'tiff': pipeline = pipeline.tiff({ quality: q }); break
+      default: pipeline = pipeline.jpeg({ quality: q }); break
+    }
+
+    // sharp strips metadata by default, so the flag reads inverted here.
+    if (!stripMetadata) pipeline = pipeline.withMetadata()
+
+    let outDir = destDir || dirname(filePath)
+    // Batch with a custom output dir can mirror the source tree. Guard against
+    // a file outside mirrorFrom producing a '..' path that escapes destDir.
+    if (destDir && mirrorFrom) {
+      const rel = relative(mirrorFrom, dirname(filePath))
+      if (rel && !rel.startsWith('..') && !isAbsolute(rel)) outDir = join(destDir, rel)
+    }
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
+
+    // resolveConflict guarantees we never overwrite anything — including the
+    // source itself when the target format matches the source format.
+    const base = basename(filePath, extname(filePath))
+    const outputPath = resolveConflict(join(outDir, base + CONVERT_EXT[format]))
+
+    await pipeline.toFile(outputPath)
+    const { size } = await stat(outputPath)
+    return { ok: true, outputPath, bytes: size }
   } catch (e) {
     return { ok: false, error: String(e) }
   }

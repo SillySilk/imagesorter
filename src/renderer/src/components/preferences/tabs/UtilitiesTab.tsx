@@ -1,81 +1,60 @@
-import React, { useState } from 'react'
-import { IcCinema, IcConvert, IcUpscale, IcWand } from '../../Icons'
+import React from 'react'
+import { Field, Toggle } from '../forms/Field'
+import { IcCinema, IcConvert, IcUpscale } from '../../Icons'
+import type { Config } from '../../../../../main/config'
 
-type UtilView = 'index' | 'cinema' | 'convert' | 'upscale' | 'aivideo'
+interface Props {
+  draft: Config
+  onChange: (patch: Partial<Config>) => void
+}
 
-export default function UtilitiesTab() {
-  const [view, setView] = useState<UtilView>('index')
+const TILES = [
+  { id: 'cinema', Icon: IcCinema, title: 'Cinema', titleEm: 'Player', status: 'beta' as const, desc: 'Video playback with shuttle controls and auto-detection.', features: ['Auto-detect video files', 'J/K/L shuttle keys', 'A/B loop'] },
+  { id: 'convert', Icon: IcConvert, title: 'File', titleEm: 'Conversion', status: 'ready' as const, desc: 'Convert one image or batch the whole loaded queue.', features: ['JPEG, PNG, WebP, AVIF, TIFF', 'Resize & strip metadata', 'Batch with progress'] },
+  { id: 'upscale', Icon: IcUpscale, title: 'Upscale', titleEm: 'Studio', status: 'ready' as const, desc: 'Algorithmic 2×/3×/4× resize with selectable kernels.', features: ['Lanczos3, Mitchell, Bicubic', 'PNG, JPEG, source format', 'Saves next to original'] },
+]
 
-  if (view !== 'index') {
-    return (
-      <div className="sub-view">
-        <div style={{ paddingBottom: 14 }}>
-          <button className="sub-back" onClick={() => setView('index')}>
-            ← Back to Utilities
-          </button>
-        </div>
-        <div style={{ color: 'var(--text-mute)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.12em' }}>
-          {view === 'cinema' && <CinemaSubview />}
-          {view === 'convert' && <PlannedSubview name="File Conversion" />}
-          {view === 'upscale' && <PlannedSubview name="Upscale Studio" />}
-          {view === 'aivideo' && <PlannedSubview name="AI Video Atelier" />}
-        </div>
-      </div>
-    )
-  }
+const STATUS_LABEL = { beta: 'BETA', ready: 'READY' }
 
-  const tiles = [
-    { id: 'cinema' as const, Icon: IcCinema, title: 'Cinema', titleEm: 'Player', desc: 'Video playback with shuttle controls, markers, and auto-detection.', status: 'beta' as const, features: ['Auto-detect video files', 'J/K/L shuttle keys', 'In/Out markers', 'A/B loop'] },
-    { id: 'convert' as const, Icon: IcConvert, title: 'File', titleEm: 'Conversion', desc: 'Batch convert images between formats with quality and resize controls.', status: 'planned' as const, features: ['JPEG, PNG, WebP, AVIF, TIFF', 'Resize & strip metadata', 'Mirror folder structure', 'Color space control'] },
-    { id: 'upscale' as const, Icon: IcUpscale, title: 'Upscale', titleEm: 'Studio', desc: 'AI-powered image upscaling with multiple engine options and GPU queue.', status: 'planned' as const, features: ['Real-ESRGAN, SwinIR, HAT', '2×/3×/4× scale', 'Denoise & tile size', 'Preserve film grain'] },
-    { id: 'aivideo' as const, Icon: IcWand, title: 'AI Video', titleEm: 'Atelier', desc: 'Prompt-driven video editing with timeline, B-roll fill, and generation.', status: 'planned' as const, features: ['Natural language prompts', 'Recipe chips', 'Multi-track timeline', 'Local or cloud render'] },
-  ]
+export default function UtilitiesTab({ draft, onChange }: Props) {
+  const cinema = draft.utilities.cinema
 
   return (
     <div>
       <div className="section-title">Utilities <em>suite</em></div>
       <div className="section-sub">Suite · Extended tools and workflows</div>
+
+      <div className="card" style={{ marginTop: 14, marginBottom: 18 }}>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--silver-4)', marginBottom: 8 }}>
+          Cinema Player
+        </div>
+        <Field label="Auto-detect video files" desc="Switch to the Cinema Player automatically when the current file is a video">
+          <Toggle
+            value={cinema.auto_switch}
+            onChange={v => onChange({ utilities: { ...draft.utilities, cinema: { ...cinema, auto_switch: v } } })}
+          />
+        </Field>
+      </div>
+
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--silver-4)', marginBottom: 10 }}>
+        Available Tools
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-mute)', fontFamily: 'var(--mono)', marginBottom: 12, letterSpacing: '0.06em' }}>
+        Open and run these from the Utilities panel in the left rail.
+      </div>
       <div className="util-grid">
-        {tiles.map(t => (
-          <div key={t.id} className="util-tile" onClick={() => setView(t.id)}>
+        {TILES.map(t => (
+          <div key={t.id} className="util-tile" style={{ cursor: 'default' }}>
             <div className="util-icon"><t.Icon /></div>
             <h3>{t.title} <em>{t.titleEm}</em></h3>
             <div className="util-desc">{t.desc}</div>
-            <span className={`util-status ${t.status}`}>{t.status.toUpperCase()}</span>
+            <span className={`util-status ${t.status}`}>{STATUS_LABEL[t.status]}</span>
             <ul className="util-features">
               {t.features.map(f => <li key={f}>{f}</li>)}
             </ul>
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-function CinemaSubview() {
-  return (
-    <div>
-      <div style={{ color: 'var(--silver-2)', fontFamily: 'var(--sans)', fontSize: 12, marginBottom: 14 }}>
-        Cinema Player auto-activates when the current file is a video. Shuttle keys J/K/L are active in view mode.
-      </div>
-      <div className="card">
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--silver-4)', marginBottom: 8 }}>Settings</div>
-        <div className="field">
-          <div className="field-label">Auto-detect video files<span className="desc">Switch to Cinema Player automatically</span></div>
-          <div className="field-control">
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-mute)' }}>Configure in main settings → General</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function PlannedSubview({ name }: { name: string }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 200, gap: 12 }}>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--cream)', fontStyle: 'italic' }}>{name}</div>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--sepia)' }}>Planned — Coming Soon</div>
     </div>
   )
 }

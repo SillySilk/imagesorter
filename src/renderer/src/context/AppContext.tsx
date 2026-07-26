@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react'
 import type { Config } from '../../../main/config'
+import { applyAppearance } from '../appearance'
 
 export interface FileInfo {
   filename: string
@@ -9,6 +10,29 @@ export interface FileInfo {
 }
 
 export type Disposition = 'kept' | 'rejected' | 'skipped' | null
+
+/**
+ * The last destructive action, retained so Ctrl+Z can put the file back.
+ * Single level by design — a second undo is a no-op.
+ */
+export interface UndoEntry {
+  kind: 'keep' | 'reject' | 'delete'
+  file: FileInfo
+  /** Index the file occupied before removal; restore puts it back here. */
+  index: number
+  originalPath: string
+  /** Where the file lives now, after a keep/reject move. `resolveConflict` may
+   * have renamed it, so this is the real on-disk path, not a computed one. */
+  currentPath?: string
+  /** Trash manifest id, for a delete. */
+  trashId?: string
+}
+
+export interface SessionStats {
+  kept: number
+  rejected: number
+  deleted: number
+}
 
 export interface AppState {
   config: Config | null
@@ -21,12 +45,19 @@ export interface AppState {
    * resolved fit scale so the readout always reflects what's on screen. */
   fitMode: boolean
   panOffset: { x: number; y: number }
-  railTab: 'browse' | 'sort' | 'film' | 'utils' | 'history'
+  railTab: 'sort' | 'utils'
   settingsOpen: boolean
   settingsTab: string
   dispositions: Record<string, Disposition>
   isLoading: boolean
   version: string
+  /** Counts for this folder session. Survives REMOVE_FILE, which is why the
+   * status bar can't derive these from `dispositions`. */
+  sessionStats: SessionStats
+  undoEntry: UndoEntry | null
+  /** Bumped only by SET_FILES. Consumers that must distinguish "new folder"
+   * from "a file was removed" key off this, not the `files` array identity. */
+  filesToken: number
 }
 
 type AppAction =
@@ -43,6 +74,9 @@ type AppAction =
   | { type: 'CLOSE_SETTINGS' }
   | { type: 'SET_DISPOSITION'; payload: { path: string; disposition: Disposition } }
   | { type: 'REMOVE_FILE'; payload: string }
+  | { type: 'RECORD_ACTION'; payload: { kind: UndoEntry['kind']; undo: UndoEntry | null } }
+  | { type: 'UNDO_RESTORE'; payload: { file: FileInfo; index: number } }
+  | { type: 'CLEAR_UNDO' }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_VERSION'; payload: string }
   | { type: 'NEXT' }
@@ -62,7 +96,16 @@ const initialState: AppState = {
   settingsTab: 'general',
   dispositions: {},
   isLoading: false,
-  version: '0.7.0'
+  version: '0.7.0',
+  sessionStats: { kept: 0, rejected: 0, deleted: 0 },
+  undoEntry: null,
+  filesToken: 0
+}
+
+const STAT_KEY: Record<UndoEntry['kind'], keyof SessionStats> = {
+  keep: 'kept',
+  reject: 'rejected',
+  delete: 'deleted'
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -74,7 +117,15 @@ function reducer(state: AppState, action: AppAction): AppState {
         mode: action.payload.app_mode === 'last' ? state.mode : (action.payload.app_mode || 'view')
       }
     case 'SET_FILES':
-      return { ...state, files: action.payload, currentIndex: 0, dispositions: {} }
+      return {
+        ...state,
+        files: action.payload,
+        currentIndex: 0,
+        dispositions: {},
+        sessionStats: { kept: 0, rejected: 0, deleted: 0 },
+        undoEntry: null,
+        filesToken: state.filesToken + 1
+      }
     case 'SET_INDEX':
       return { ...state, currentIndex: Math.max(0, Math.min(action.payload, state.files.length - 1)), zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
     case 'SET_MODE':
@@ -104,6 +155,40 @@ function reducer(state: AppState, action: AppAction): AppState {
       const newIndex = Math.min(state.currentIndex, Math.max(0, newFiles.length - 1))
       return { ...state, files: newFiles, currentIndex: newIndex, dispositions: newDisps, zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
     }
+    case 'RECORD_ACTION': {
+      const key = STAT_KEY[action.payload.kind]
+      // `undo: null` means the action counts but can't be reversed (permanent
+      // delete). Clearing the slot is the honest result — Ctrl+Z should not
+      // silently reach past it to undo some earlier action.
+      return {
+        ...state,
+        undoEntry: action.payload.undo,
+        sessionStats: { ...state.sessionStats, [key]: state.sessionStats[key] + 1 }
+      }
+    }
+    case 'UNDO_RESTORE': {
+      const entry = state.undoEntry
+      if (!entry) return state
+      const { file, index } = action.payload
+      const key = STAT_KEY[entry.kind]
+      const files = [...state.files]
+      // The list has shifted since the action (further culling, another folder
+      // op), so clamp rather than trusting the recorded index blindly.
+      const at = Math.max(0, Math.min(index, files.length))
+      files.splice(at, 0, file)
+      return {
+        ...state,
+        files,
+        currentIndex: at,
+        undoEntry: null,
+        sessionStats: { ...state.sessionStats, [key]: Math.max(0, state.sessionStats[key] - 1) },
+        zoom: 1,
+        fitMode: true,
+        panOffset: { x: 0, y: 0 }
+      }
+    }
+    case 'CLEAR_UNDO':
+      return { ...state, undoEntry: null }
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload }
     case 'SET_VERSION':
@@ -139,6 +224,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const configRef = React.useRef<AppState['config']>(null)
 
   useEffect(() => { configRef.current = state.config }, [state.config])
+
+  // Apply appearance settings to the document root whenever they change.
+  // Runs on initial config load and on every live edit from the Appearance tab.
+  const ap = state.config?.appearance
+  useEffect(() => {
+    if (ap) applyAppearance(ap)
+  }, [ap])
 
   useEffect(() => {
     const init = async () => {

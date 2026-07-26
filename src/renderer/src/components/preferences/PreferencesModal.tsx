@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useApp } from '../../context/AppContext'
-import { DecoCorner, IcX, IcSettings, IcGrid, IcAperture, IcFilm, IcPalette, IcCpu, IcMouse, IcKeyboard } from '../Icons'
+import { DecoCorner, IcX, IcGrid, IcPalette, IcCpu, IcMouse, IcKeyboard } from '../Icons'
 import type { Config } from '../../../../main/config'
 import GeneralTab from './tabs/GeneralTab'
 import ControlsTab from './tabs/ControlsTab'
-import FilmographyTab from './tabs/FilmographyTab'
 import AppearanceTab from './tabs/AppearanceTab'
 import UtilitiesTab from './tabs/UtilitiesTab'
 
@@ -15,7 +14,6 @@ const TABS = [
   { group: 'Atelier', items: [
     { id: 'sort-controls', label: 'Sort Mode', Icon: IcMouse, count: null },
     { id: 'view-controls', label: 'View Mode', Icon: IcKeyboard, count: null },
-    { id: 'filmography', label: 'Filmography', Icon: IcFilm },
   ]},
   { group: 'Suite', items: [
     { id: 'appearance', label: 'Appearance', Icon: IcPalette },
@@ -117,9 +115,8 @@ export default function PreferencesModal() {
             {activeTab === 'general' && <GeneralTab draft={draft} onChange={handleChange} />}
             {activeTab === 'sort-controls' && <ControlsTab mode="sort" draft={draft} onChange={handleChange} />}
             {activeTab === 'view-controls' && <ControlsTab mode="view" draft={draft} onChange={handleChange} />}
-            {activeTab === 'filmography' && <FilmographyTab draft={draft} onChange={handleChange} />}
             {activeTab === 'appearance' && <AppearanceTab draft={draft} onChange={handleChange} />}
-            {activeTab === 'utilities' && <UtilitiesTab />}
+            {activeTab === 'utilities' && <UtilitiesTab draft={draft} onChange={handleChange} />}
           </div>
         </div>
 

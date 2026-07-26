@@ -44,7 +44,7 @@ export default function AppearanceTab({ draft, onChange }: Props) {
           {THEMES.map(t => (
             <div
               key={t.id}
-              onClick={() => updateAp({ theme: t.id })}
+              onClick={() => updateAp({ theme: t.id, accent: t.colors[0] })}
               style={{
                 width: 72, height: 48,
                 display: 'flex', flexDirection: 'column', overflow: 'hidden',

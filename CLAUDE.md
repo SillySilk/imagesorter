@@ -36,15 +36,16 @@ Then check Settings → Default apps → search "Aperture". If registry looks ri
 - Stale old-path refs were cleaned from usage caches (`FeatureUsage`, `UserAssist` (ROT13), 4 jumplists, `ComDlg32\OpenSavePidlMRU`, `MuiCache`) — NOT in any association key. May need re-cleaning natively if those edits were sandboxed too.
 
 ## Also wanted (feature)
-- **No easy "Open File" / "Open Folder" button in the app's front UI** — add to `src/renderer`. Check `src/main/index.ts` for existing `dialog.showOpenDialog` IPC. A dependable way in regardless of OS associations.
+- ~~No easy "Open File" / "Open Folder" button in the app's front UI~~ **DONE** — `src/renderer/src/components/FileMenu.tsx` has both, plus `Ctrl+O`.
 
 ## Tooling / housekeeping
 - ProcMon at `C:\AI\Aperture\_diag\` (+ `capture.ps1`, root `run-assoc-capture.bat`) for tracing the picker — never completed; delete `_diag\` + the bat when done.
 - `register-associations.ps1` does ProgId + Applications + SupportedTypes but **not** Capabilities/RegisteredApplications — extend it (steps 3–4).
 
 ## DO NOT
-- **Do not commit until associations actually work on the real machine** (user's instruction). ~5 local commits on `main` + uncommitted working changes; nothing pushed.
 - Don't point associations at the root stub. Don't re-add self-signing.
+
+> **Committing is allowed** (user lifted the previous hold on 2026-07-26). Commit normal work to `main` as usual; the file-association fix is no longer a gate.
 ---
 
 ## Directory Structure

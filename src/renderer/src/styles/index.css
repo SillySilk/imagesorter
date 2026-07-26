@@ -1,6 +1,6 @@
 /* ========= APERTURE — Image Viewer Redesign ========= */
 
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:wght@400;500;600;700&family=EB+Garamond:wght@400;500;600;700&family=Cinzel:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
 
 :root{
   /* Core */
@@ -55,7 +55,33 @@
   /* Layout */
   --rail-w: 56px;
   --header-h: 44px;
+
+  /* Base UI font size — overridden per density (see [data-density]) */
+  --ui-fs: 13px;
 }
+
+/* ========== THEME PALETTES (data-theme swaps backgrounds + neutrals) ========== */
+/* The accent ramp (--wine-*) is set inline from config.accent; these blocks
+   own the near-black backgrounds and silver tint that give each theme its
+   character. Burgundy is the base :root above, so it needs no override. */
+
+:root[data-theme="obsidian"]{
+  --ink-0: #04060a; --ink-1: #080b0f; --ink-2: #0f141a; --ink-3: #151b22; --ink-4: #1c242c;
+  --silver-1: #eef1f2; --silver-2: #cfd6d8; --silver-3: #a8b4b6; --silver-4: #7c868a;
+}
+:root[data-theme="plum"]{
+  --ink-0: #08040c; --ink-1: #0d0812; --ink-2: #16101f; --ink-3: #1e1729; --ink-4: #271d34;
+  --silver-1: #f1eef2; --silver-2: #d4cfd8; --silver-3: #b4b0b6; --silver-4: #86818a;
+}
+:root[data-theme="iron"]{
+  --ink-0: #070709; --ink-1: #0c0c0f; --ink-2: #131316; --ink-3: #1b1b1f; --ink-4: #232328;
+  --silver-1: #f4f4f6; --silver-2: #d6d6da; --silver-3: #c0c0c4; --silver-4: #8a8a90;
+}
+
+/* ========== DENSITY (data-density scales chrome + type) ========== */
+:root[data-density="compact"]{ --ui-fs: 12px; --header-h: 38px; --rail-w: 48px; }
+:root[data-density="comfortable"]{ --ui-fs: 13px; --header-h: 44px; --rail-w: 56px; }
+:root[data-density="spacious"]{ --ui-fs: 14px; --header-h: 52px; --rail-w: 64px; }
 
 *{ box-sizing: border-box; }
 html, body{ margin: 0; padding: 0; height: 100%; }
@@ -63,7 +89,7 @@ body{
   background: var(--ink-1);
   color: var(--text-1);
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--ui-fs);
   line-height: 1.45;
   letter-spacing: 0.005em;
   overflow: hidden;
@@ -98,6 +124,32 @@ body{
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   opacity: 0.6;
   z-index: 9999;
+}
+
+/* ========== APPEARANCE TOGGLES ========== */
+/* Film Grain on Chrome — hide the fullscreen grain overlay + panel noise */
+:root[data-grain="off"] .grain::after{ display: none; }
+:root[data-grain="off"] .leather::before{ display: none; }
+
+/* Show Aperture Marks — canvas corner brackets */
+:root[data-marks="off"] .canvas .corner-tr,
+:root[data-marks="off"] .canvas .corner-bl{ display: none; }
+
+/* Brushed Metal Hardware — metallic sheen on buttons */
+:root[data-metal="on"] .btn{
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 45%, rgba(0,0,0,0.28)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 2px);
+  box-shadow: var(--bevel), 0 1px 2px rgba(0,0,0,0.5);
+}
+:root[data-metal="on"] .btn.primary{
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0) 45%, rgba(0,0,0,0.30)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 2px);
+}
+:root[data-metal="on"] .dock-btn,
+:root[data-metal="on"] .rail-btn{
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18));
 }
 
 /* ========== APP SHELL ========== */
@@ -986,7 +1038,6 @@ body{
   border-radius: 2px;
   color: var(--silver-4);
 }
-.util-tile .util-status.planned{ color: var(--sepia); border-color: rgba(184,149,106,0.25); }
 .util-tile .util-status.beta{ color: var(--wine-3); border-color: var(--line-wine); }
 .util-tile .util-status.ready{ color: #98c486; border-color: rgba(152,196,134,0.25); }
 .util-tile .util-features{

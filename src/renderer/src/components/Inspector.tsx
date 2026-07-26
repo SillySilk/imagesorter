@@ -15,16 +15,21 @@ const THUMB_BATCH = 20
 
 export default function Inspector() {
   const { state, dispatch } = useApp()
-  const { files, currentIndex, dispositions, config } = state
+  const { files, currentIndex, dispositions, config, filesToken } = state
   const currentFile = files[currentIndex] || null
 
   const [meta, setMeta] = useState<Metadata | null>(null)
   const [histogram, setHistogram] = useState<number[] | null>(null)
-  const [thumbMap, setThumbMap] = useState<Map<number, string>>(new Map())
+  // Keyed by path, never by index. Culling shifts every later index, so an
+  // index-keyed cache shows each file its former neighbour's thumbnail.
+  const [thumbMap, setThumbMap] = useState<Map<string, string>>(new Map())
 
   const histoRef = useRef<HTMLCanvasElement>(null)
   const currentCellRef = useRef<HTMLDivElement>(null)
-  const loadGenRef = useRef(0)  // increments on each new load run to cancel stale ones
+  const thumbMapRef = useRef(thumbMap)
+  thumbMapRef.current = thumbMap
+  const inFlightRef = useRef<Set<string>>(new Set())
+  const loadGenRef = useRef(0)  // bumped per folder, to discard results from the previous one
 
   // Load metadata when file changes
   useEffect(() => {
@@ -39,41 +44,70 @@ export default function Inspector() {
     return () => { cancelled = true }
   }, [currentFile?.full_path])
 
-  // Load all thumbnails progressively when file list changes
+  // A genuinely new folder — only SET_FILES bumps filesToken. Drop the cache
+  // and invalidate anything still in flight for the previous folder.
   useEffect(() => {
+    loadGenRef.current++
+    inFlightRef.current.clear()
     setThumbMap(new Map())
+  }, [filesToken])
+
+  // Fill in whatever is missing. Deliberately NOT keyed on the `files` array
+  // identity for a reset: every keep/reject/delete produces a new array, and
+  // resetting here meant one keystroke re-decoded the entire folder.
+  useEffect(() => {
     if (files.length === 0) return
 
-    const gen = ++loadGenRef.current
+    // Drop thumbnails for files that have left the list, so a long culling
+    // session doesn't hold base64 for images that are gone.
+    const present = new Set(files.map(f => f.full_path))
+    let stale = false
+    for (const key of thumbMapRef.current.keys()) {
+      if (!present.has(key)) { stale = true; break }
+    }
+    if (stale) {
+      const pruned = new Map<string, string>()
+      for (const [k, v] of thumbMapRef.current) if (present.has(k)) pruned.set(k, v)
+      setThumbMap(pruned)
+    }
+
+    const missing = files.filter(f =>
+      f.type === 'image' &&
+      !thumbMapRef.current.has(f.full_path) &&
+      !inFlightRef.current.has(f.full_path)
+    )
+    if (missing.length === 0) return
+
+    const gen = loadGenRef.current
+    missing.forEach(f => inFlightRef.current.add(f.full_path))
 
     const loadBatch = async (start: number) => {
-      if (loadGenRef.current !== gen) return
-      const batch = files.slice(start, start + THUMB_BATCH)
+      const batch = missing.slice(start, start + THUMB_BATCH)
       if (batch.length === 0) return
 
       const results = await Promise.all(
-        batch.map((f, offset) =>
-          f.type === 'image'
-            ? window.api.image.thumbnail({ filePath: f.full_path, width: 64, height: 64 })
-                .then(t => ({ idx: start + offset, thumb: t }))
-                .catch(() => ({ idx: start + offset, thumb: '' }))
-            : Promise.resolve({ idx: start + offset, thumb: '' })
+        batch.map(f =>
+          window.api.image.thumbnail({ filePath: f.full_path, width: 64, height: 64 })
+            .then(thumb => ({ path: f.full_path, thumb }))
+            .catch(() => ({ path: f.full_path, thumb: '' }))
         )
       )
+      batch.forEach(f => inFlightRef.current.delete(f.full_path))
 
+      // Folder changed under us — these results belong to the old list.
       if (loadGenRef.current !== gen) return
+
       setThumbMap(prev => {
         const next = new Map(prev)
-        results.forEach(({ idx, thumb }) => next.set(idx, thumb))
+        results.forEach(({ path, thumb }) => next.set(path, thumb))
         return next
       })
 
-      // continue with next batch
       loadBatch(start + THUMB_BATCH)
     }
 
     loadBatch(0)
-  }, [files])  // reset and reload whenever file list changes
+  }, [files, filesToken])
 
   // Scroll current cell into view when index changes
   useEffect(() => {
@@ -164,7 +198,7 @@ export default function Inspector() {
             {files.map((f, i) => {
               const isCurrent = i === currentIndex
               const disp = dispositions[f.full_path]
-              const thumb = thumbMap.get(i)
+              const thumb = thumbMap.get(f.full_path)
               return (
                 <div
                   key={f.full_path}
@@ -191,24 +225,6 @@ export default function Inspector() {
         </div>
       </div>
 
-      <div className="inspector-section">
-        <h4>Active Filter</h4>
-        {config?.filmography?.active_filter && config.filmography.active_filter !== 'none' ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ width: 48, height: 36, background: 'repeating-linear-gradient(45deg, #2a1f25 0 4px, #1a131c 4px 8px)', border: '1px solid var(--silver-6)', position: 'relative' }}>
-              <div style={{ position: 'absolute', inset: 0, background: 'rgba(184,80,40,0.18)' }} />
-            </div>
-            <div>
-              <div className="serif" style={{ fontSize: 14, color: 'var(--cream)' }}>{config.filmography.active_filter}</div>
-              <div className="mono" style={{ fontSize: 9, color: 'var(--text-mute)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>
-                Grain {config.filmography.grain}%
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ color: 'var(--text-mute)', fontFamily: 'var(--mono)', fontSize: 10 }}>None</div>
-        )}
-      </div>
     </aside>
   )
 }
