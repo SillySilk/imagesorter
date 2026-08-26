@@ -85,7 +85,7 @@ describe('migrate — preserves real user settings', () => {
     expect(out.app_mode).toBe('sort')
     expect(out.options.recursive_loading).toBe(true)
     expect(out.options.file_types).toEqual(['jpg', 'png'])
-    expect(out.sort_settings.key_mappings.space).toBe('random')
+    expect(out.sort_settings.key_mappings.Space).toBe('random')
     expect(out.utilities.cinema.auto_switch).toBe(false)
     expect(out.utilities.convert.quality).toBe(80)
     expect(out.utilities.convert.strip_metadata).toBe(true)
@@ -128,6 +128,16 @@ describe('migrate — older schemas', () => {
     expect(km.ArrowUp).toBe('zoom_in')
     expect(km.ArrowDown).toBe('zoom_out')
     expect(km).not.toHaveProperty('Up')
+  })
+
+  it('renames the legacy lowercase "space" key mapping to "Space"', () => {
+    // The shipped default bound the spacebar as "space", a human name rather
+    // than KeyboardEvent.code's actual "Space" — so it silently never fired.
+    const raw = v8Config()
+    ;(raw.sort_settings as { key_mappings: Record<string, string> }).key_mappings = { space: 'random' }
+    const km = migrate(raw).sort_settings.key_mappings
+    expect(km.Space).toBe('random')
+    expect(km).not.toHaveProperty('space')
   })
 
   it('is idempotent — migrating twice changes nothing further', () => {

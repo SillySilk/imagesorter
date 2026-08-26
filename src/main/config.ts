@@ -55,16 +55,19 @@ export const VALID_ACTIONS = new Set<Action>([
   'random', 'zoom_in', 'zoom_out', 'fit_to_page', 'context_menu'
 ])
 
+// Keyed by KeyboardEvent.code, not a human name — useActionRouter looks up
+// key_mappings[e.code] first. The spacebar's code is "Space"; a lowercase
+// "space" here would never match a real keypress.
 const DEFAULT_SORT_SETTINGS: ModeSettings = {
   button_mappings: { left_click: 'keep', right_click: 'reject', middle_click: 'disabled' },
   wheel_mappings: { wheel_up: 'previous', wheel_down: 'next' },
-  key_mappings: { space: 'random', ArrowUp: 'zoom_in', ArrowDown: 'zoom_out', f: 'fit_to_page' }
+  key_mappings: { Space: 'random', ArrowUp: 'zoom_in', ArrowDown: 'zoom_out', f: 'fit_to_page' }
 }
 
 const DEFAULT_VIEW_SETTINGS: ModeSettings = {
   button_mappings: { left_click: 'next', right_click: 'context_menu', middle_click: 'random' },
   wheel_mappings: { wheel_up: 'previous', wheel_down: 'next' },
-  key_mappings: { ArrowUp: 'zoom_in', ArrowDown: 'zoom_out', f: 'fit_to_page', space: 'random' }
+  key_mappings: { ArrowUp: 'zoom_in', ArrowDown: 'zoom_out', f: 'fit_to_page', Space: 'random' }
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -177,6 +180,11 @@ export function migrate(data: Record<string, unknown>): Config {
       const km = s.key_mappings
       if ('Up' in km) { km['ArrowUp'] = km['Up']; delete km['Up'] }
       if ('Down' in km) { km['ArrowDown'] = km['Down']; delete km['Down'] }
+
+      // The shipped default bound the spacebar as "space" (a human name)
+      // instead of "Space" (its actual KeyboardEvent.code), so the binding
+      // never fired for anyone — see useActionRouter's e.code lookup.
+      if ('space' in km) { km['Space'] = km['space']; delete km['space'] }
     }
   }
 
