@@ -1,51 +1,10 @@
 # Aperture — Project Guide
 
 ---
-# ⚠️ ACTIVE HANDOFF — file-association fix not yet working (2026-06-13)
 
-> Written from the Claude **Windows app**, which sandboxes shell commands. The user moved to the **CLI** (runs natively) to actually apply the fix. **First job: verify on the REAL machine, then apply.**
+## File Associations — resolved (2026-07-26)
 
-## Goal
-Make **Aperture** the default handler for image files (PNG etc.) so double-click opens it and it shows in Windows "Open with" / Default Apps. It **worked before** when the association pointed at a real Electron exe deployed to `C:\AI\Image Viewer App` (now deleted); broke during single-folder consolidation.
-
-## Probable root cause of "nothing I do changes anything": SANDBOX
-From the Windows app, registry/file writes were verified as "success" by re-reading them, but the user's real Windows never reflected any of it (Open with still shows the deleted `C:\AI\Image Viewer App\Aperture.exe` as Default app + retired `Rapid_Image_Culler`; "Aperture" never appears by name; Settings → Default apps → search "Aperture" = not found). That = writes likely hitting a sandbox overlay, not the real hive.
-**CAVEAT:** one read with the sandbox flag disabled *did* show the values present, so it's suspected-not-confirmed. **Verify reality first in the CLI:**
-```powershell
-Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name Aperture
-Test-Path 'HKCU:\Software\Aperture\Capabilities'
-(Get-ItemProperty 'HKCU:\Software\Classes\ApertureImageSuite\shell\open\command').'(default)'
-(Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.png\UserChoice').ProgId
-```
-Then check Settings → Default apps → search "Aperture". If registry looks right but Aperture is missing there, (re)apply natively + restart explorer.
-
-## Intended registry state (apply/verify natively; target real exe `C:\AI\Aperture\dist\win-unpacked\Aperture.exe`)
-1. ProgId `Software\Classes\ApertureImageSuite`: `shell\open\command`=`"<real exe>" "%1"`, `DefaultIcon`=`<real exe>,0`.
-2. `Software\Classes\Applications\Aperture.exe`: same command+icon, `FriendlyAppName`="Aperture", `SupportedTypes` = all exts.
-3. `Software\Aperture\Capabilities`: `ApplicationName`="Aperture", `ApplicationDescription`, `ApplicationIcon`=`<real exe>,0`; subkey `FileAssociations` maps each ext → `ApertureImageSuite`.
-4. `Software\RegisteredApplications\Aperture` = `Software\Aperture\Capabilities`.  ← **was missing the whole time; the registration that makes Windows treat Aperture as "an app." Most likely real fix.**
-5. `.png` default: `FileExts\.png\UserChoice` ProgId = `ApertureImageSuite` (set via Settings UI once Aperture appears, or SetUserFTA hash — Win11 UCPD.sys reverts naive programmatic sets).
-6. Exts: `.jpg .jpeg .png .gif .webp .tiff .tif .bmp .avif .heic .heif .mp4 .webm .mov .avi .mkv`
-7. `SHChangeNotify(0x08000000,...)` + restart explorer after.
-
-## Findings (don't relearn the hard way)
-- **Associate with the real exe, NOT the root stub** `C:\AI\Aperture\Aperture.exe` (stub spawns+exits instantly → Windows rejects it as a handler → "kicks back"). Stub = manual starter only.
-- Build was **self-signed with an untrusted cert** (`electron-builder.yml` `signtoolOptions`, `CN=PanPDX`); working version was unsigned. Current dist exe's sig was **stripped** (now NotSigned). **Remove `signtoolOptions` from `electron-builder.yml`** so rebuilds stay unsigned.
-- **Win11 UCPD.sys** (active) reverts programmatic default-app changes for most types; only `.png/.jpg/.gif` (previously user-set) persisted. Use Settings UI or SetUserFTA for the rest.
-- Old `C:\AI\Image Viewer App` deleted. Retired Python prototype `Rapid_Image_Culler` (`C:\AI\image sort`) deleted.
-- Stale old-path refs were cleaned from usage caches (`FeatureUsage`, `UserAssist` (ROT13), 4 jumplists, `ComDlg32\OpenSavePidlMRU`, `MuiCache`) — NOT in any association key. May need re-cleaning natively if those edits were sandboxed too.
-
-## Also wanted (feature)
-- ~~No easy "Open File" / "Open Folder" button in the app's front UI~~ **DONE** — `src/renderer/src/components/FileMenu.tsx` has both, plus `Ctrl+O`.
-
-## Tooling / housekeeping
-- ProcMon at `C:\AI\Aperture\_diag\` (+ `capture.ps1`, root `run-assoc-capture.bat`) for tracing the picker — never completed; delete `_diag\` + the bat when done.
-- `register-associations.ps1` does ProgId + Applications + SupportedTypes but **not** Capabilities/RegisteredApplications — extend it (steps 3–4).
-
-## DO NOT
-- Don't point associations at the root stub. Don't re-add self-signing.
-
-> **Committing and pushing are both explicitly allowed** (user lifted the previous hold on 2026-07-26). Commit and push normal work to `main` as usual — no need to ask each time. The file-association fix is no longer a gate on either.
+The default-app registration silently failed because it was being applied from the sandboxed Claude Windows app, whose registry writes never reached the real hive; running the same fix natively from the CLI resolved it. `register-associations.ps1` now correctly registers Aperture end-to-end (ProgId, Applications, SupportedTypes, Capabilities, RegisteredApplications) against the real exe. Full debugging history is in git log if ever needed.
 ---
 
 ## Directory Structure
