@@ -10,7 +10,7 @@ export interface FileInfo {
 
 const IMAGE_EXTS = new Set([
   '.png', '.jpg', '.jpeg', '.bmp', '.webp', '.svg',
-  '.psd', '.heic', '.tiff', '.tif', '.gif', '.avif',
+  '.psd', '.psb', '.heic', '.tiff', '.tif', '.gif', '.avif',
   '.cr2', '.nef', '.arw', '.dng', '.raw'
 ])
 

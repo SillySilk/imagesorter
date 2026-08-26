@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "ag-psd": "^31.0.2",
     "sharp": "^0.33.5"
   },
   "devDependencies": {

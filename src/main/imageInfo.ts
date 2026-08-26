@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { PSD_EXTS, loadPsdAsSharp } from './psd'
 
 export interface ImageMetadata {
   width: number
@@ -17,8 +18,10 @@ export interface ImageMetadata {
 // means the only file handle is this quick read, so the original is never
 // locked.
 async function loadSharp(filePath: string): Promise<import('sharp').Sharp> {
-  const sharp = (await import('sharp')).default
   const buf = await fs.promises.readFile(filePath)
+  const ext = path.extname(filePath).toLowerCase()
+  if (PSD_EXTS.has(ext)) return loadPsdAsSharp(buf)
+  const sharp = (await import('sharp')).default
   return sharp(buf)
 }
 
@@ -26,13 +29,17 @@ export async function getImageMetadata(filePath: string): Promise<ImageMetadata>
   const stat = fs.statSync(filePath)
   const created = stat.birthtime.toISOString().split('T')[0]
   const size = stat.size
+  const ext = path.extname(filePath).toLowerCase()
 
   try {
     const meta = await (await loadSharp(filePath)).metadata()
     return {
       width: meta.width || 0,
       height: meta.height || 0,
-      format: (meta.format || path.extname(filePath).replace('.', '')).toUpperCase(),
+      // A PSD's sharp instance wraps raw decoded pixels, so meta.format reads
+      // back as 'raw' rather than the source format — label it from the
+      // extension instead.
+      format: (PSD_EXTS.has(ext) ? ext.slice(1) : (meta.format || ext.replace('.', ''))).toUpperCase(),
       color_space: meta.space || 'sRGB',
       size,
       created

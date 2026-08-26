@@ -3,7 +3,7 @@ import { Field, Toggle, Seg } from '../forms/Field'
 import { formatBytes } from '../../../utils/formatters'
 import type { Config } from '../../../../../main/config'
 
-const FILE_TYPE_OPTIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'raw', 'cr2', 'nef', 'arw', 'dng']
+const FILE_TYPE_OPTIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'psd', 'psb', 'raw', 'cr2', 'nef', 'arw', 'dng']
 
 interface Props {
   draft: Config

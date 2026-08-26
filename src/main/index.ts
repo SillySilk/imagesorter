@@ -9,18 +9,21 @@ import { RecursiveScanner } from './scanner'
 import { moveFile, movePath, copyFile, deleteFile, resolveConflict } from './fileOps'
 import { trashFile, restoreFromTrash, trashInfo, emptyTrash } from './trash'
 import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
+import { PSD_EXTS, loadPsdAsSharp } from './psd'
 
 let configManager: ConfigManager
 
 const MEDIA_EXTS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp',
-  '.svg', '.avif', '.heic', '.heif', '.mp4', '.webm', '.mov', '.avi', '.mkv'
+  '.svg', '.avif', '.heic', '.heif', '.psd', '.psb', '.mp4', '.webm', '.mov', '.avi', '.mkv'
 ])
 
-// Formats Chromium can't decode natively but sharp can — transcode these to
-// PNG on the fly so they display in an <img>. (PSD/RAW are unsupported by
-// sharp and intentionally left to fail rather than fake support.)
-const TRANSCODE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff'])
+// Formats Chromium can't decode natively — transcode these to PNG on the fly
+// so they display in an <img>. HEIC/TIFF go through sharp directly; PSD/PSB
+// go through ag-psd first since sharp/libvips can't read them (see ./psd).
+// RAW camera formats are still unsupported and intentionally left to fail
+// rather than fake support.
+const TRANSCODE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff', '.psd', '.psb'])
 
 // Video formats are served with HTTP range support so the player can seek.
 const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv'])
@@ -107,8 +110,11 @@ function createWindow(): void {
 
     if (TRANSCODE_EXTS.has(ext)) {
       try {
-        const sharp = (await import('sharp')).default
-        const buf = await sharp(await readFile(filePath)).rotate().png().toBuffer()
+        const fileBuf = await readFile(filePath)
+        const source = PSD_EXTS.has(ext)
+          ? await loadPsdAsSharp(fileBuf)
+          : (await import('sharp')).default(fileBuf)
+        const buf = await source.rotate().png().toBuffer()
         return new Response(buf, { headers: { 'content-type': 'image/png' } })
       } catch (e) {
         console.warn('Transcode failed, serving raw:', filePath, e)
@@ -261,8 +267,11 @@ ipcMain.handle('window:print', async (_e, { filePath }: { filePath: string }) =>
   const win = BrowserWindow.getFocusedWindow()
   if (!win) return { ok: false }
   try {
-    const sharp = (await import('sharp')).default
-    const buf = await sharp(filePath).rotate().png().toBuffer()
+    const ext = extname(filePath).toLowerCase()
+    const source = PSD_EXTS.has(ext)
+      ? await loadPsdAsSharp(await readFile(filePath))
+      : (await import('sharp')).default(filePath)
+    const buf = await source.rotate().png().toBuffer()
     const b64 = buf.toString('base64')
     const html = `<!DOCTYPE html><html><head><style>*{margin:0;padding:0}body{display:flex;align-items:center;justify-content:center;width:100vw;height:100vh;background:#fff}img{max-width:100%;max-height:100%;object-fit:contain}</style></head><body><img src="data:image/png;base64,${b64}"></body></html>`
     const printWin = new BrowserWindow({ show: false, parent: win, webPreferences: { sandbox: false } })
@@ -277,7 +286,7 @@ ipcMain.handle('window:print', async (_e, { filePath }: { filePath: string }) =>
 ipcMain.handle('dialog:openFile', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile'],
-    filters: [{ name: 'Images & Videos', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'tiff', 'tif', 'bmp', 'avif', 'heic', 'heif', 'mp4', 'webm', 'mov', 'avi', 'mkv'] }]
+    filters: [{ name: 'Images & Videos', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'tiff', 'tif', 'bmp', 'avif', 'heic', 'heif', 'psd', 'psb', 'mp4', 'webm', 'mov', 'avi', 'mkv'] }]
   })
   return result.canceled ? null : result.filePaths[0]
 })
@@ -380,18 +389,23 @@ ipcMain.handle('upscale:process', async (_e, {
     const sharp = (await import('sharp')).default
     const { join, dirname, basename, extname } = await import('path')
 
-    const meta = await sharp(filePath).metadata()
+    const origExt = extname(filePath)
+    const psdBuf = PSD_EXTS.has(origExt.toLowerCase()) ? await readFile(filePath) : null
+    const loadSource = () => psdBuf ? loadPsdAsSharp(psdBuf) : Promise.resolve(sharp(filePath))
+
+    const meta = await (await loadSource()).metadata()
     const newWidth = (meta.width || 0) * scale
     const newHeight = (meta.height || 0) * scale
 
-    const origExt = extname(filePath)
     const origBase = basename(filePath, origExt)
-    const ext = outputFormat === 'png' ? '.png' : outputFormat === 'jpeg' ? '.jpg' : origExt
+    // sharp can't write PSD back out — "source" format for a PSD input falls
+    // back to PNG instead of failing at toFile() on an unencodable extension.
+    const ext = outputFormat === 'png' ? '.png' : outputFormat === 'jpeg' ? '.jpg' : (psdBuf ? '.png' : origExt)
     const outName = `${origBase}_${scale}x${ext}`
     const outDir = destDir || dirname(filePath)
     const outputPath = join(outDir, outName)
 
-    let pipeline = sharp(filePath).resize(newWidth, newHeight, { kernel: kernel as any, fit: 'fill' })
+    let pipeline = (await loadSource()).resize(newWidth, newHeight, { kernel: kernel as any, fit: 'fill' })
     if (outputFormat === 'png') pipeline = pipeline.png({ compressionLevel: 8 })
     else if (outputFormat === 'jpeg') pipeline = pipeline.jpeg({ quality: 95 })
 
@@ -422,15 +436,17 @@ ipcMain.handle('convert:process', async (_e, {
 }) => {
   try {
     const sharp = (await import('sharp')).default
+    const ext = extname(filePath).toLowerCase()
 
     // Hand sharp the bytes, not the path. sharp(path) holds the source file
     // open while libvips works, and this app moves and deletes those files.
     const buf = await readFile(filePath)
-    const meta = await sharp(buf).metadata()
+    const loadSource = () => PSD_EXTS.has(ext) ? loadPsdAsSharp(buf) : Promise.resolve(sharp(buf))
+    const meta = await (await loadSource()).metadata()
 
     // .rotate() bakes EXIF orientation into the pixels and drops the orientation
     // tag. Without it, stripping metadata silently rotates the image.
-    let pipeline = sharp(buf).rotate()
+    let pipeline = (await loadSource()).rotate()
 
     if (resize.mode === 'long' && resize.px > 0) {
       // Square bounding box + 'inside' scales the longest edge to px whichever

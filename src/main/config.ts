@@ -80,7 +80,7 @@ export const DEFAULT_CONFIG: Config = {
     auto_advance: false,
     confirm_delete: true,
     overwrite_existing: true,
-    file_types: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'cr2', 'nef', 'arw', 'dng']
+    file_types: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'heic', 'psd', 'psb', 'cr2', 'nef', 'arw', 'dng']
   },
   appearance: {
     theme: 'burgundy',
