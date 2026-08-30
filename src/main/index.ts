@@ -9,7 +9,7 @@ import { RecursiveScanner } from './scanner'
 import { moveFile, movePath, copyFile, deleteFile, resolveConflict } from './fileOps'
 import { trashFile, restoreFromTrash, trashInfo, emptyTrash } from './trash'
 import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
-import { PSD_EXTS, loadPsdAsSharp } from './psd'
+import { PSD_EXTS, loadPsdAsSharp, loadImageAsSharp } from './psd'
 
 let configManager: ConfigManager
 
@@ -499,13 +499,18 @@ ipcMain.handle('convert:process', async (_e, {
 
 ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: string }) => {
   try {
-    const sharp = (await import('sharp')).default
-    const buffer = await sharp(await readFile(filePath)).png().toBuffer()
+    const buffer = await (await loadImageAsSharp(filePath)).png().toBuffer()
     clipboard.writeImage(nativeImage.createFromBuffer(buffer))
     return { ok: true }
   } catch {
+    // Fallback for anything sharp can't decode. createFromPath doesn't throw
+    // on an unreadable format — it hands back an empty image — so an empty
+    // result has to be reported as a failure. Writing it would wipe the
+    // clipboard while the UI flashed "COPIED".
     try {
-      clipboard.writeImage(nativeImage.createFromPath(filePath))
+      const image = nativeImage.createFromPath(filePath)
+      if (image.isEmpty()) return { ok: false, error: 'Unsupported image format' }
+      clipboard.writeImage(image)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String(e) }
@@ -515,8 +520,7 @@ ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: str
 
 ipcMain.handle('image:copyRegion', async (_e, { filePath, x, y, width, height }: { filePath: string; x: number; y: number; width: number; height: number }) => {
   try {
-    const sharp = (await import('sharp')).default
-    const buffer = await sharp(await readFile(filePath))
+    const buffer = await (await loadImageAsSharp(filePath))
       .extract({ left: x, top: y, width, height })
       .png()
       .toBuffer()

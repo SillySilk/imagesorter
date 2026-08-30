@@ -1,4 +1,15 @@
+import { extname } from 'path'
+import { readFile } from 'fs/promises'
+
 export const PSD_EXTS = new Set(['.psd', '.psb'])
+
+// Opens any file the app can display as a sharp pipeline, routing PSD/PSB
+// through ag-psd. Anything that reads a user-picked file must go through
+// here: handing a .psd straight to sharp throws "unsupported image format".
+export async function loadImageAsSharp(filePath: string): Promise<import('sharp').Sharp> {
+  if (PSD_EXTS.has(extname(filePath).toLowerCase())) return loadPsdAsSharp(await readFile(filePath))
+  return (await import('sharp')).default(filePath)
+}
 
 let canvasPolyfillReady = false
 
