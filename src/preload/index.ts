@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Config } from '../main/config'
 import type { FileInfo } from '../main/scanner'
 import type { TrashEntry } from '../main/trash'
+import type { BatchRenameResult } from '../main/fileOps'
 
 export type ConvertFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'tiff'
 export type ConvertResize = { mode: 'none' } | { mode: 'long'; px: number } | { mode: 'pct'; pct: number }
@@ -41,7 +42,11 @@ const api = {
     /** Exact-path move — undo needs this because the file may have been
      * renamed to `foo_1.jpg` on its way out. */
     moveTo: (opts: { src: string; destPath: string }): Promise<{ ok: boolean; dest?: string; error?: string }> =>
-      ipcRenderer.invoke('file:moveTo', opts)
+      ipcRenderer.invoke('file:moveTo', opts),
+    /** Two-phase rename of many files at once. Refuses (touching nothing) if
+     * any destination is already held by a file outside the set. */
+    batchRename: (opts: { pairs: { src: string; dest: string }[] }): Promise<BatchRenameResult> =>
+      ipcRenderer.invoke('file:batchRename', opts)
   },
   trash: {
     info: (): Promise<{ count: number; bytes: number }> => ipcRenderer.invoke('trash:info'),

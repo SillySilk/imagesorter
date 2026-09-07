@@ -93,3 +93,76 @@ export function deleteFile(filePath: string): { ok: boolean; error?: string } {
     return { ok: false, error: String(e) }
   }
 }
+
+export interface BatchRenamePair { src: string; dest: string }
+export type BatchRenameResult =
+  | { ok: true; renamed: BatchRenamePair[] }
+  | { ok: false; error: string; conflicts?: string[] }
+
+// Windows and macOS volumes are case-insensitive, so `A.jpg` and `a.jpg` are the
+// same file for conflict purposes. Linux keeps case significant.
+const CASE_INSENSITIVE = process.platform === 'win32' || process.platform === 'darwin'
+const pathKey = (p: string): string => CASE_INSENSITIVE ? path.resolve(p).toLowerCase() : path.resolve(p)
+
+/**
+ * Rename many files in one atomic-as-we-can-get pass.
+ *
+ * Two phases: every source first moves to a private temp name beside itself,
+ * then every temp moves to its final name. A single-pass loop would clobber
+ * itself the moment a destination is also a not-yet-moved source (shifting
+ * `img_002 → img_001` while `img_001 → img_002` is still pending, which is
+ * exactly what a re-number produces). Validation runs up front so a refusal
+ * touches nothing; a mid-flight failure rolls every completed step back.
+ */
+export async function batchRename(pairs: BatchRenamePair[]): Promise<BatchRenameResult> {
+  // Exact-string equality on purpose: a case-only rename (a.jpg → A.jpg) has
+  // equal pathKeys but is real work the user asked for.
+  const work = pairs.filter(p => p.src !== p.dest)
+
+  const srcKeys = new Set(work.map(p => pathKey(p.src)))
+  const destKeys = new Set<string>()
+  const conflicts: string[] = []
+  for (const p of work) {
+    if (!fs.existsSync(p.src)) return { ok: false, error: `Source file not found: ${path.basename(p.src)}` }
+    const dk = pathKey(p.dest)
+    if (destKeys.has(dk)) return { ok: false, error: `Two files would both become ${path.basename(p.dest)}` }
+    destKeys.add(dk)
+    // A destination already on disk is fine only if it's one of ours — it will
+    // have vacated its name by the time phase 2 needs it.
+    if (fs.existsSync(p.dest) && !srcKeys.has(dk)) conflicts.push(p.dest)
+  }
+  if (conflicts.length > 0) {
+    const n = conflicts.length
+    return { ok: false, error: `${n} name${n === 1 ? ' is' : 's are'} already taken by files outside the queue.`, conflicts }
+  }
+
+  const token = `${process.pid}-${Date.now().toString(36)}`
+  const temps = work.map((p, i) => path.join(path.dirname(p.src), `.aperture-rename-${token}-${i}.tmp`))
+
+  // Phase 1: src → temp
+  const parked: number[] = []
+  for (let i = 0; i < work.length; i++) {
+    try {
+      fs.renameSync(work[i].src, temps[i])
+      parked.push(i)
+    } catch (e: unknown) {
+      for (const j of parked) { try { fs.renameSync(temps[j], work[j].src) } catch { /* best effort */ } }
+      return { ok: false, error: `Could not rename ${path.basename(work[i].src)}: ${String(e)}` }
+    }
+  }
+
+  // Phase 2: temp → dest
+  const landed: number[] = []
+  for (let i = 0; i < work.length; i++) {
+    try {
+      fs.renameSync(temps[i], work[i].dest)
+      landed.push(i)
+    } catch (e: unknown) {
+      for (const j of landed) { try { fs.renameSync(work[j].dest, work[j].src) } catch { /* best effort */ } }
+      for (let j = i; j < work.length; j++) { try { fs.renameSync(temps[j], work[j].src) } catch { /* best effort */ } }
+      return { ok: false, error: `Could not rename to ${path.basename(work[i].dest)}: ${String(e)}` }
+    }
+  }
+
+  return { ok: true, renamed: work }
+}

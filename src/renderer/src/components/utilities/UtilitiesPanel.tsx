@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useApp } from '../../context/AppContext'
-import { IcCinema, IcConvert, IcUpscale, IcBack } from '../Icons'
+import { IcCinema, IcConvert, IcUpscale, IcRename, IcBack } from '../Icons'
 import UpscaleStudio from './UpscaleStudio'
 import ConvertStudio from './ConvertStudio'
+import BatchRenameStudio from './BatchRenameStudio'
 
-type SubView = null | 'video' | 'convert' | 'upscale'
+type SubView = null | 'video' | 'convert' | 'upscale' | 'rename'
 type Status = 'beta' | 'ready'
 
 const STATUS_LABEL: Record<Status, string> = { beta: 'Beta', ready: 'Ready' }
@@ -44,6 +45,15 @@ const TILES: {
     em: 'Studio',
     desc: 'High-quality 2× / 3× / 4× resize with Lanczos3, Mitchell & Bicubic.',
     features: ['Lanczos3 · Mitchell · Bicubic', 'PNG · JPEG · source format', 'Saves next to original']
+  },
+  {
+    k: 'rename',
+    Icon: IcRename,
+    status: 'ready',
+    title: 'Batch',
+    em: 'Rename',
+    desc: 'Rename the whole loaded queue to a numbered sequence. # marks where the number goes.',
+    features: ['img_### → img_001, 002…', 'Live preview · queue order', 'One-click revert']
   }
 ]
 
@@ -126,6 +136,7 @@ export default function UtilitiesPanel() {
     if (subView === 'video') return <VideoConfig onBack={() => setSubView(null)} />
     if (subView === 'convert') return <ConvertStudio onBack={() => setSubView(null)} />
     if (subView === 'upscale') return <UpscaleStudio onBack={() => setSubView(null)} />
+    if (subView === 'rename') return <BatchRenameStudio onBack={() => setSubView(null)} />
     return <UtilitiesIndex onOpen={setSubView} />
   })()
 

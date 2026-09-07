@@ -1,6 +1,6 @@
 import React from 'react'
 import { Field, Toggle } from '../forms/Field'
-import { IcCinema, IcConvert, IcUpscale } from '../../Icons'
+import { IcCinema, IcConvert, IcUpscale, IcRename } from '../../Icons'
 import type { Config } from '../../../../../main/config'
 
 interface Props {
@@ -12,6 +12,7 @@ const TILES = [
   { id: 'cinema', Icon: IcCinema, title: 'Cinema', titleEm: 'Player', status: 'beta' as const, desc: 'Video playback with shuttle controls and auto-detection.', features: ['Auto-detect video files', 'J/K/L shuttle keys', 'A/B loop'] },
   { id: 'convert', Icon: IcConvert, title: 'File', titleEm: 'Conversion', status: 'ready' as const, desc: 'Convert one image or batch the whole loaded queue.', features: ['JPEG, PNG, WebP, AVIF, TIFF', 'Resize & strip metadata', 'Batch with progress'] },
   { id: 'upscale', Icon: IcUpscale, title: 'Upscale', titleEm: 'Studio', status: 'ready' as const, desc: 'Algorithmic 2×/3×/4× resize with selectable kernels.', features: ['Lanczos3, Mitchell, Bicubic', 'PNG, JPEG, source format', 'Saves next to original'] },
+  { id: 'rename', Icon: IcRename, title: 'Batch', titleEm: 'Rename', status: 'ready' as const, desc: 'Rename the loaded queue to a numbered sequence; # marks the number.', features: ['img_### → img_001, 002…', 'Live preview in queue order', 'One-click revert'] },
 ]
 
 const STATUS_LABEL = { beta: 'BETA', ready: 'READY' }

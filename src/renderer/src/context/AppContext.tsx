@@ -78,6 +78,7 @@ type AppAction =
   | { type: 'CLOSE_SETTINGS' }
   | { type: 'SET_DISPOSITION'; payload: { path: string; disposition: Disposition } }
   | { type: 'REMOVE_FILE'; payload: string }
+  | { type: 'RENAME_FILES'; payload: { from: string; to: FileInfo }[] }
   | { type: 'RECORD_ACTION'; payload: { kind: UndoEntry['kind']; undo: UndoEntry | null } }
   | { type: 'UNDO_RESTORE'; payload: { file: FileInfo; index: number; kind: UndoEntry['kind']; id: number } }
   | { type: 'CLEAR_UNDO' }
@@ -168,6 +169,19 @@ export function reducer(state: AppState, action: AppAction): AppState {
       delete newDisps[action.payload]
       const newIndex = Math.min(state.currentIndex, Math.max(0, newFiles.length - 1))
       return { ...state, files: newFiles, currentIndex: newIndex, dispositions: newDisps, zoom: 1, fitMode: true, panOffset: { x: 0, y: 0 } }
+    }
+    case 'RENAME_FILES': {
+      // In-place path swap after the Batch Rename utility. Not SET_FILES: that
+      // resets the index to 0 and wipes dispositions, and nothing about the
+      // user's position in the queue changed — only the names did. filesToken
+      // still bumps because the Inspector's thumbnail cache is keyed by path.
+      const map = new Map(action.payload.map(r => [r.from, r.to]))
+      const files = state.files.map(f => map.get(f.full_path) ?? f)
+      const dispositions: AppState['dispositions'] = {}
+      for (const [p, d] of Object.entries(state.dispositions)) {
+        dispositions[map.get(p)?.full_path ?? p] = d
+      }
+      return { ...state, files, dispositions, filesToken: state.filesToken + 1 }
     }
     case 'RECORD_ACTION': {
       const key = STAT_KEY[action.payload.kind]

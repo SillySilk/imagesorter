@@ -6,7 +6,7 @@ import { copyFile as fsCopyFile, stat, readFile } from 'fs/promises'
 import { Readable } from 'stream'
 import { ConfigManager, DEFAULT_CONFIG, VALID_ACTIONS } from './config'
 import { RecursiveScanner } from './scanner'
-import { moveFile, movePath, copyFile, deleteFile, resolveConflict } from './fileOps'
+import { moveFile, movePath, copyFile, deleteFile, resolveConflict, batchRename } from './fileOps'
 import { trashFile, restoreFromTrash, trashInfo, emptyTrash } from './trash'
 import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
 import { PSD_EXTS, loadPsdAsSharp, loadImageAsSharp } from './psd'
@@ -331,6 +331,12 @@ ipcMain.handle('trash:empty', () => emptyTrash())
 // have been renamed to `foo_1.jpg` by resolveConflict on the way out.
 ipcMain.handle('file:moveTo', (_e, { src, destPath }: { src: string; destPath: string }) =>
   movePath(src, resolveConflict(destPath)))
+
+// Batch Rename utility. No resolveConflict here on purpose: silently landing on
+// `shot_003_1.jpg` would break the very sequence the user asked for, so a taken
+// name is reported back as a refusal instead.
+ipcMain.handle('file:batchRename', (_e, { pairs }: { pairs: { src: string; dest: string }[] }) =>
+  batchRename(pairs))
 
 ipcMain.handle('image:metadata', (_e, { filePath }: { filePath: string }) => getImageMetadata(filePath))
 

@@ -242,3 +242,40 @@ describe('navigation', () => {
     expect(reducer(stateWith(), { type: 'SET_INDEX', payload: -5 }).currentIndex).toBe(0)
   })
 })
+
+describe('RENAME_FILES', () => {
+  const B2 = mkFile('shot_002.jpg')
+  const C2 = mkFile('shot_003.jpg')
+  const renames = [
+    { from: B.full_path, to: B2 },
+    { from: C.full_path, to: C2 }
+  ]
+
+  it('swaps in the new entries at the same positions', () => {
+    const next = reducer(stateWith(), { type: 'RENAME_FILES', payload: renames })
+    expect(next.files).toEqual([A, B2, C2, D])
+  })
+
+  it('keeps the viewer on the same image rather than resetting to the start', () => {
+    const next = reducer(stateWith({ currentIndex: 2 }), { type: 'RENAME_FILES', payload: renames })
+    expect(next.currentIndex).toBe(2)
+  })
+
+  it('carries dispositions across to the new paths', () => {
+    const s = stateWith({ dispositions: { [B.full_path]: 'kept', [D.full_path]: 'skipped' } })
+    const next = reducer(s, { type: 'RENAME_FILES', payload: renames })
+    expect(next.dispositions).toEqual({ [B2.full_path]: 'kept', [D.full_path]: 'skipped' })
+  })
+
+  it('bumps filesToken so the thumbnail cache (keyed by path) is rebuilt', () => {
+    const s = stateWith()
+    const next = reducer(s, { type: 'RENAME_FILES', payload: renames })
+    expect(next.filesToken).toBe(s.filesToken + 1)
+  })
+
+  it('leaves session counters alone — nothing was culled', () => {
+    const s = stateWith({ sessionStats: { kept: 2, rejected: 1, deleted: 0 } })
+    const next = reducer(s, { type: 'RENAME_FILES', payload: renames })
+    expect(next.sessionStats).toEqual({ kept: 2, rejected: 1, deleted: 0 })
+  })
+})
