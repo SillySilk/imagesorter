@@ -79,6 +79,8 @@ Most tests here are regression guards for specific bugs, and the comments say wh
 
 ## Build & Ship Workflow
 
+**Standing rule: rebuild after every change.** `dist/win-unpacked/Aperture.exe` is the actual app the user runs — a source change that isn't repackaged is invisible to them even though `main` has it. Once a change is committed and pushed, run `/ship-aperture` in the same session to bring the packaged app back in sync. Don't wait to be asked.
+
 Use the `/ship-aperture` skill — it handles everything in order:
 
 1. `npm test` — the suite must pass before anything is packaged
