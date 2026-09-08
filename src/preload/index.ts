@@ -79,7 +79,18 @@ const api = {
       destDir: string | null
       mirrorFrom?: string | null
     }): Promise<{ ok: boolean; outputPath?: string; bytes?: number; error?: string }> =>
-      ipcRenderer.invoke('convert:process', opts)
+      ipcRenderer.invoke('convert:process', opts),
+    /** Batch Rename's format-conversion path: writes each job straight to its
+     * final renamed destination and moves the original to Trash. */
+    renameConvert: (opts: {
+      jobs: { src: string; dest: string }[]
+      format: ConvertFormat
+      quality: number
+    }): Promise<{
+      ok: boolean
+      succeeded: { src: string; dest: string; trashId: string }[]
+      failed: { src: string; error: string }[]
+    }> => ipcRenderer.invoke('convert:renameConvert', opts)
   },
   shell: {
     showInExplorer: (opts: { filePath: string }) => ipcRenderer.invoke('shell:showInExplorer', opts),

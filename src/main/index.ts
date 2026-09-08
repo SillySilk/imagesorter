@@ -10,6 +10,7 @@ import { moveFile, movePath, copyFile, deleteFile, resolveConflict, batchRename 
 import { trashFile, restoreFromTrash, trashInfo, emptyTrash } from './trash'
 import { getImageMetadata, getThumbnail, getHistogram } from './imageInfo'
 import { PSD_EXTS, loadPsdAsSharp, loadImageAsSharp } from './psd'
+import { renameConvert } from './renameConvert'
 
 let configManager: ConfigManager
 
@@ -502,6 +503,15 @@ ipcMain.handle('convert:process', async (_e, {
     return { ok: false, error: String(e) }
   }
 })
+
+// Batch Rename's "convert as you rename" path — see renameConvert.ts.
+ipcMain.handle('convert:renameConvert', (_e, {
+  jobs, format, quality
+}: {
+  jobs: { src: string; dest: string }[]
+  format: ConvertFormat
+  quality: number
+}) => renameConvert(jobs, format, quality))
 
 ipcMain.handle('image:copyToClipboard', async (_e, { filePath }: { filePath: string }) => {
   try {

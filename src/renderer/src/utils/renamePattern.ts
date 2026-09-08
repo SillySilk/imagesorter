@@ -34,9 +34,13 @@ const splitExt = (filename: string): { stem: string; ext: string } => {
 }
 
 export function buildRenamePlan(
-  files: { full_path: string; filename: string }[],
+  files: { full_path: string; filename: string; type?: 'image' | 'video' }[],
   pattern: string,
-  start: number
+  start: number,
+  /** When set, every image file's extension is replaced with this one (the
+   * Batch Rename panel's format-conversion option) — a leading dot, e.g.
+   * '.jpg'. Video files always keep their own extension regardless. */
+  forceExt?: string
 ): RenamePlan {
   const p = pattern.trim()
   if (!p) return { ok: false, error: 'Enter a name pattern.' }
@@ -46,7 +50,8 @@ export function buildRenamePlan(
 
   const pairs = files.map((f, i) => {
     const { ext } = splitExt(f.filename)
-    const newName = expandPattern(p, start + i) + ext
+    const finalExt = forceExt && f.type !== 'video' ? forceExt : ext
+    const newName = expandPattern(p, start + i) + finalExt
     // Keep whatever separator the path already uses so the result round-trips
     // through the scanner unchanged.
     const cut = Math.max(f.full_path.lastIndexOf('\\'), f.full_path.lastIndexOf('/'))

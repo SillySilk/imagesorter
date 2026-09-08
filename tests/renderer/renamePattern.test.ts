@@ -75,4 +75,26 @@ describe('buildRenamePlan', () => {
     expect(plan.pairs[0].oldName).toBe('IMG_4021.jpg')
     expect(plan.pairs[0].newName).toBe('beach_001.jpg')
   })
+
+  it('forces every image extension to forceExt, ignoring the original', () => {
+    const files = [
+      { ...f('D:\\lib\\a.png'), type: 'image' as const },
+      { ...f('D:\\lib\\b.PNG'), type: 'image' as const }
+    ]
+    const plan = buildRenamePlan(files, 'trip_#', 1, '.jpg')
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.pairs.map(p => p.newName)).toEqual(['trip_1.jpg', 'trip_2.jpg'])
+  })
+
+  it('leaves video files on their own extension even when forceExt is set', () => {
+    const files = [
+      { ...f('D:\\lib\\a.png'), type: 'image' as const },
+      { ...f('D:\\lib\\clip.mp4'), type: 'video' as const }
+    ]
+    const plan = buildRenamePlan(files, 'trip_#', 1, '.jpg')
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.pairs.map(p => p.newName)).toEqual(['trip_1.jpg', 'trip_2.mp4'])
+  })
 })
