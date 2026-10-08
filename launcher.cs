@@ -1,5 +1,5 @@
 // Root launcher stub. Compiled to Aperture.exe in the repo root so the app can
-// be started from C:\AI\Aperture directly. The real Electron exe must stay in
+// be started from C:\AI\Apps\Aperture directly. The real Electron exe must stay in
 // dist\win-unpacked\ beside its DLLs and resources, so this just forwards to it.
 //
 // Rebuild (only needed if this file changes):
