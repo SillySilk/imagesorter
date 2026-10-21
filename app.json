@@ -1,5 +1,6 @@
 {
   "name": "Aperture",
+  "tagline": "Image viewer",
   "launch": "Aperture.exe",
   "image": "tile.png"
 }
