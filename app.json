@@ -2,5 +2,14 @@
   "name": "Aperture",
   "tagline": "Image viewer",
   "launch": "Aperture.exe",
-  "image": "tile.png"
+  "image": "tile.png",
+  "repos": [
+    {
+      "path": ".",
+      "kind": "own",
+      "remotes": [
+        "origin"
+      ]
+    }
+  ]
 }
